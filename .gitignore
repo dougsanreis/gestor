@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local SYRA state and evidence never belong in the repo: evidence is a record
+# of a specific run on a specific machine, and failure memory is per-operator.
+.syra/
+*.jsonl
