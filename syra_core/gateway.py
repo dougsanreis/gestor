@@ -95,11 +95,15 @@ class IntegrationGateway:
         max_workers: int = 8,
     ) -> None:
         self.safety = safety
-        self.contracts = contracts or ContractRegistry()
-        self.telemetry = telemetry or null_telemetry()
+        # `is None`, never `or`: an empty ContractRegistry is falsy (it defines
+        # __len__), so `contracts or ContractRegistry()` would silently discard
+        # the caller's registry whenever it happened to be empty at construction
+        # -- and then every contract added later would be invisible here.
+        self.contracts = ContractRegistry() if contracts is None else contracts
+        self.telemetry = null_telemetry() if telemetry is None else telemetry
         self.failures = failures
-        self.health = health or HealthRegistry()
-        self.breakers = breakers or BreakerRegistry()
+        self.health = HealthRegistry() if health is None else health
+        self.breakers = BreakerRegistry() if breakers is None else breakers
 
         self._connectors: Dict[str, Connector] = {}
         self._lock = threading.RLock()

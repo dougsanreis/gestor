@@ -98,6 +98,30 @@ class TestRegistration(GatewayCase):
         with self.assertRaises(ConnectorUnknown):
             self.gateway.invoke("nope", {})
 
+    def test_contracts_defined_after_construction_are_visible(self) -> None:
+        """The gateway must keep the exact registry it was handed.
+
+        An empty ContractRegistry is falsy, so `contracts or ContractRegistry()`
+        silently swapped in a fresh one whenever the caller's registry happened
+        to be empty at construction time -- and every contract added afterwards
+        became invisible to the gateway.
+        """
+        registry = ContractRegistry()
+        gateway = IntegrationGateway(
+            safety=SafetyContract.product_runtime("TEST"), contracts=registry
+        )
+        self.addCleanup(gateway.shutdown)
+        self.assertIs(gateway.contracts, registry)
+
+        registry.define("late.request", "1.0.0", REQUEST_SCHEMA)
+        gateway.register(
+            service_connector(
+                "late", lambda p: {"ok": True}, request_contract="late.request"
+            )
+        )
+        self.assertFalse(gateway.invoke("late", {"wrong": 1}).ok)
+        self.assertTrue(gateway.invoke("late", {"goal": "x"}).ok)
+
 
 class TestPipeline(GatewayCase):
     def test_happy_path(self) -> None:
