@@ -60,15 +60,28 @@ def _now() -> float:
 
 
 def _slug(text: str, limit: int = 40) -> str:
-    """Converte texto livre em identificador estavel e seguro para arquivos."""
+    """Converte texto livre em identificador estavel e seguro para arquivos.
+
+    O corte respeita fronteira de palavra: um pacote chamado
+    ``gestao_escolar_com_al`` denuncia truncamento, ``gestao_escolar_com``
+    parece intencional.
+    """
     keep = []
     for char in text.lower():
         if char.isalnum():
             keep.append(char)
         elif keep and keep[-1] != "_":
             keep.append("_")
-    slug = "".join(keep).strip("_")[:limit].strip("_")
-    return slug or "mission"
+
+    slug = "".join(keep).strip("_")
+    if len(slug) > limit:
+        cortado = slug[:limit]
+        fronteira = cortado.rfind("_")
+        # So recua ate a fronteira se ainda sobrar nome util.
+        if fronteira >= limit // 2:
+            cortado = cortado[:fronteira]
+        slug = cortado
+    return slug.strip("_") or "mission"
 
 
 @dataclass(frozen=True)
