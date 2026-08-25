@@ -1,0 +1,12 @@
+{
+  "_comentario": "Manifest de exemplo. O agente gera este arquivo a partir do bundle do `govio doctor`. Os expectSha256 vem do proprio bundle.",
+  "patches": [
+    {
+      "path": "apps/web/lib/landing/publish-chain.ts",
+      "expectSha256": "608786652a9f4dc4175aedbef1808bdd2f2a380e6dab0a1c1495b513735a6b38",
+      "find": "    validator: LandingPublishValidator,",
+      "replace": "    validator: NextValidator,",
+      "occurrences": 1
+    }
+  ]
+}

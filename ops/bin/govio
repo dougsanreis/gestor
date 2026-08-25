@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+#   govio — orquestrador de entrega do GOVIO
+#
+#   Garantia numero 1: NENHUM comando deste toolkit fecha o seu terminal.
+#   Cada gate roda em processo filho e o dispatcher sempre retorna 0.
+#
+#   Garantia numero 2: NENHUM comando deste toolkit executa
+#   git reset / git clean / git restore / git checkout -- / rm -rf no worktree.
+#
+#   Uso:
+#     govio checkpoint            # PRIMEIRO SEMPRE: salva o trabalho em git
+#     govio doctor                # diagnostico completo, read-only, batch
+#     govio apply <patches.json>  # aplica N patches em uma transacao com CAS
+#     govio build [web|team|all]  # build isolado com classificacao de causa raiz
+#     govio ship preview [app]    # deploy de preview + prova de proveniencia
+#     govio ship production [app] # promocao para govio.com.br (exige confirmar)
+#     govio where                 # mostra o que o toolkit esta enxergando
+#     govio doctrine              # imprime as regras que este agente segue
+
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+  printf 'ERRO: nao use `source govio`. Execute: bash %s <comando>\n' "${BASH_SOURCE[0]}" >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+GOVIO_BIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+GOVIO_ROOT="$(dirname -- "$GOVIO_BIN_DIR")"
+export GOVIO_LIB="$GOVIO_ROOT/lib"
+export GOVIO_GATES="$GOVIO_ROOT/gates"
+
+CMD="${1:-help}"
+[ $# -gt 0 ] && shift
+
+run_gate() {
+  local gate="$1"; shift
+  local path="$GOVIO_GATES/$gate.sh"
+  if [ ! -f "$path" ]; then
+    printf 'ERRO: gate desconhecido: %s\n' "$gate" >&2
+    return 0
+  fi
+  # Processo filho: um `exit 1` la dentro jamais alcanca o seu shell.
+  bash "$path" "$@"
+  printf '\nGATE_RC=%s\n' "$?"
+  return 0
+}
+
+case "$CMD" in
+  checkpoint|save)  run_gate checkpoint "$@" ;;
+  doctor|diagnose)  run_gate doctor "$@" ;;
+  apply|patch)      run_gate apply "$@" ;;
+  build)            run_gate build "$@" ;;
+  ship|deploy)      run_gate ship "$@" ;;
+
+  where)
+    . "$GOVIO_LIB/guard.sh"
+    if g::resolve_wt; then
+      printf 'WORKTREE=%s\n' "$GOVIO_WT"
+      printf 'HEAD=%s\n'     "$(g::head_sha)"
+      printf 'BRANCH=%s\n'   "$(g::git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+      printf 'PENDENTES=%s\n' "$(g::git status --porcelain=v1 | wc -l | tr -d ' ')"
+      printf 'EVIDENCIAS=%s\n' "$GOVIO_EVIDENCE_ROOT"
+      printf '\n--- arquivos pendentes ---\n'
+      g::git status --porcelain=v1
+    fi
+    ;;
+
+  doctrine|rules)
+    if [ -f "$GOVIO_ROOT/DOCTRINE.md" ]; then
+      ${PAGER:-cat} "$GOVIO_ROOT/DOCTRINE.md"
+    else
+      printf 'DOCTRINE.md nao encontrado em %s\n' "$GOVIO_ROOT"
+    fi
+    ;;
+
+  help|--help|-h|*)
+    awk 'NR>2 && /^#/ { sub(/^# ?/, ""); print; next } NR>2 && !/^#/ { exit }' \
+      "${BASH_SOURCE[0]}"
+    ;;
+esac
+
+# Sempre 0. O RC real de cada gate vai impresso como GATE_RC e na evidencia.
+exit 0
