@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Estado de execucao da SYRA: memoria, historico, builds e artefatos.
+# Regenerado a cada execucao, nunca versionado.
+.syra/
