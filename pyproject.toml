@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "syra"
+version = "1.0.0"
+description = "Fabrica de software governada: gera codigo real, testa de verdade e so entrega com evidencia."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+syra = "syra.cli:main"
+
+[tool.setuptools]
+packages = [
+  "syra",
+  "syra.memory",
+  "syra.governance",
+  "syra.factory",
+  "syra.intelligence",
+  "syra.funnel",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --no-header"
