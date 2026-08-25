@@ -7,9 +7,7 @@ recomendação.
 ## Instalação (uma vez, na máquina do operador)
 
 ```bash
-git clone https://github.com/dougsanreis/gestor.git ~/.govio-src \
-  && ln -sfn ~/.govio-src/ops ~/.govio \
-  && bash ~/.govio/bin/govio where
+git clone -b claude/terminal-session-resume-byojf5 https://github.com/dougsanreis/gestor.git ~/.govio-src && ln -sfn ~/.govio-src/ops ~/.govio && bash ~/.govio/bin/govio where
 ```
 
 Atualizar depois:
@@ -17,6 +15,9 @@ Atualizar depois:
 ```bash
 git -C ~/.govio-src pull --ff-only && bash ~/.govio/bin/govio where
 ```
+
+Se o `git clone` falhar por autenticação, use o payload base64 em
+`ops/INSTALL-offline.txt` — ele não depende de rede nem de credenciais.
 
 Atalho opcional:
 
