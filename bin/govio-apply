@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""govio-apply - escrita com cerimonia PROPORCIONAL ao tier.
+
+Principio que substitui o ATOMIC_APPLY monolitico:
+  - Seguranca BARATA (tmp + fsync + os.replace) fica SEMPRE ligada: nao custa sessao.
+  - Prova CARA (bindings SHA, contrato de autoridade, revisor) so a partir do TIER-2,
+    porque e ELA que consome sessoes inteiras sem entregar produto.
+Em TIER-0/1 o proprio git ja e o log transacional e o rollback.
+Sem dependencias externas. Python 3.8+.
+"""
+from __future__ import annotations
+import argparse, hashlib, os, subprocess, sys, tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+
+def sha256_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+def sha256_file(p: Path) -> str | None:
+    return sha256_bytes(p.read_bytes()) if p.exists() else None
+
+def die(code: str, msg: str, rc: int = 2):
+    print(f"FAIL {code}: {msg}", file=sys.stderr)
+    raise SystemExit(rc)
+
+def auto_tier(path: str) -> int:
+    r = subprocess.run([str(HERE / "govio-tier"), "classify", path],
+                       text=True, capture_output=True)
+    for ln in r.stdout.splitlines():
+        if ln.startswith("TIER="):
+            return int(ln.split("=", 1)[1].split()[0])
+    die("TIER_INDETERMINADO", "govio-tier nao retornou TIER=", 3)
+
+def git(repo: Path, *a: str) -> tuple[int, str]:
+    r = subprocess.run(["git", "-C", str(repo), *a], text=True, capture_output=True)
+    return r.returncode, (r.stdout or r.stderr).strip()
+
+def atomic_replace(target: Path, data: bytes) -> None:
+    """tmp no MESMO filesystem + fsync + os.replace. Sempre ligado, em todo tier."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(target.parent), prefix=".govio.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
+        dfd = os.open(str(target.parent), os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="govio-apply", description="escrita proporcional ao risco")
+    ap.add_argument("--file", required=True)
+    ap.add_argument("--content-from", required=True, help="arquivo de origem, ou '-' para stdin")
+    ap.add_argument("--tier", type=int, default=None, help="omitido = classificado por govio-tier")
+    ap.add_argument("--expect-postimage", default=None, help="SHA256 exigido; PROIBIDO em TIER 0/1")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+
+    target = Path(a.file).resolve()
+    tier = a.tier if a.tier is not None else auto_tier(a.file)
+    src = sys.stdin.buffer.read() if a.content_from == "-" else Path(a.content_from).read_bytes()
+
+    # Arquivo NOVO em diretorio ainda inexistente: subir ate o ancestral que existe,
+    # senao 'git -C <dir inexistente>' falha e o alvo parece estar fora do repositorio.
+    probe = target.parent
+    while not probe.is_dir() and probe != probe.parent:
+        probe = probe.parent
+    rc, top = git(probe, "rev-parse", "--show-toplevel")
+    in_git = rc == 0
+    repo = Path(top) if in_git else None
+
+    pre = sha256_file(target)
+    post_want = sha256_bytes(src)
+
+    print(f"alvo:  {target}")
+    print(f"tier:  T{tier} ({'classificado' if a.tier is None else 'informado'})")
+    print(f"git:   {'sim, ' + str(repo) if in_git else 'NAO RASTREADO'}")
+    print(f"pre:   {pre or '(arquivo novo)'}")
+    print(f"post:  {post_want}")
+
+    # INV-002: em tier baixo, prova cara e VIOLACAO, nao zelo.
+    if tier <= 1 and a.expect_postimage:
+        die("CERIMONIA_EXCESSIVA",
+            f"--expect-postimage e proibido em TIER-{tier}. O rollback aqui e "
+            f"'git checkout -- {a.file}'. Exigir binding SHA neste tier viola INV-002 "
+            "e e a causa raiz das sessoes perdidas.", 4)
+
+    # TIER 2+: prova exigida, nao opcional.
+    if tier >= 2:
+        if not a.expect_postimage:
+            die("PROVA_AUSENTE", f"TIER-{tier} exige --expect-postimage <sha256>", 4)
+        if a.expect_postimage.lower() != post_want:
+            die("POSTIMAGE_DIVERGENTE",
+                f"conteudo gera {post_want}, autorizado era {a.expect_postimage.lower()}. "
+                "Nada foi escrito.", 4)
+        if not in_git:
+            die("FORA_DO_GIT", f"TIER-{tier} exige alvo dentro de repositorio git", 4)
+
+    if tier <= 1 and not in_git:
+        print("\nAVISO: alvo fora de git. Sem rede de rollback barata. "
+              "Mova para dentro do repositorio canonico (INV-001).")
+
+    if pre == post_want:
+        print("\nNOOP: conteudo ja identico. Nada a fazer.")
+        print("VERDICT=NOOP")   # INV-005: 'ja feito' e saida rapida, nao motivo de reconstrucao
+        return 0
+
+    if a.dry_run:
+        print("\nDRY-RUN: nenhuma escrita realizada.")
+        print("VERDICT=DRY_RUN")
+        return 0
+
+    backup = target.read_bytes() if target.exists() else None
+    try:
+        atomic_replace(target, src)
+    except OSError as e:
+        die("ESCRITA_FALHOU", f"{e}. Alvo intacto.", 5)
+
+    got = sha256_file(target)
+    if got != post_want:
+        # unica situacao que justifica rollback explicito: pos-escrita divergente
+        if backup is not None:
+            atomic_replace(target, backup)
+            restored = sha256_file(target)
+            ok = restored == pre
+            print(f"\nROLLBACK {'OK' if ok else 'FALHOU'}: restaurado {restored}", file=sys.stderr)
+        die("POSTIMAGE_NAO_CONFERE", f"esperado {post_want}, obtido {got}", 5)
+
+    print(f"\nescrito e verificado: {got}")
+    if in_git:
+        _, diffstat = git(repo, "diff", "--stat", "--", str(target))
+        print(diffstat or "(sem diff: arquivo pode ser novo/untracked)")
+        print(f"rollback: git -C {repo} checkout -- {target.relative_to(repo)}"
+              if target.is_relative_to(repo) else "rollback: git checkout --")
+    print("VERDICT=PASS")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

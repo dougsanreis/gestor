@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""govio-preflight - o UNICO comando de entrada. Responde 4 perguntas antes de gastar sessao.
+
+  1. Estou na fonte canonica?          (INV-001)
+  2. Este trabalho ja existe?          (INV-004, INV-005)
+  3. Quanto gate este risco merece?    (INV-002)
+  4. A sessao anterior entregou algo?  (INV-003, INV-007)
+
+Nao aprova nada. Diz o que executar e quanto custa. Sem dependencias. Python 3.8+.
+"""
+from __future__ import annotations
+import argparse, subprocess, sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+
+def run(cmd: list[str]) -> tuple[int, str]:
+    r = subprocess.run(cmd, text=True, capture_output=True)
+    return r.returncode, (r.stdout + r.stderr).rstrip()
+
+def bloco(n: int, titulo: str) -> None:
+    print(f"\n{'='*72}\n[{n}/4] {titulo}\n{'='*72}")
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="govio-preflight")
+    ap.add_argument("--intent", required=True, help="slug curto do trabalho pretendido")
+    ap.add_argument("--goal", required=True, help="delta visivel ao usuario final")
+    ap.add_argument("--files", nargs="*", default=[], help="arquivos que serao tocados")
+    ap.add_argument("--roots", nargs="*", default=[], help="raizes extras para dedupe")
+    ap.add_argument("--max-ratio", type=float, default=1.0)
+    a = ap.parse_args()
+
+    falhas: list[str] = []
+
+    bloco(1, "FONTE CANONICA (INV-001)")
+    rc, out = run([str(HERE / "govio-ssot"), "verify"])
+    print(out)
+    canonico = "."
+    if rc != 0:
+        falhas.append("SSOT")
+    else:
+        rc2, p = run([str(HERE / "govio-ssot"), "path"])
+        if rc2 == 0:
+            canonico = p.strip()
+
+    bloco(2, "TRABALHO JA EXISTENTE (INV-004 / INV-005)")
+    cmd = [str(HERE / "govio-dedupe"), "check", a.intent, "--repo", canonico]
+    if a.roots:
+        cmd += ["--roots", *a.roots]
+    rc, out = run(cmd)
+    print(out)
+    if rc == 1:
+        falhas.append("DEDUPE")
+
+    bloco(3, "GATE DEVIDO PELO RISCO (INV-002)")
+    rc, out = run([str(HERE / "govio-tier"), "classify", *a.files, "--repo", canonico])
+    print(out)
+    tier = next((int(l.split("=")[1].split()[0]) for l in out.splitlines()
+                 if l.startswith("TIER=")), 1)
+
+    bloco(4, "SAUDE DA SESSAO ANTERIOR (INV-003 / INV-007)")
+    rc, out = run([str(HERE / "govio-ledger"), "report", "--enforce",
+                   "--max-ratio", str(a.max_ratio)])
+    print(out)
+    if rc == 1:
+        falhas.append("LEDGER")
+
+    print(f"\n{'='*72}\nVEREDITO\n{'='*72}")
+    if falhas:
+        print("BLOQUEADO por: " + ", ".join(falhas))
+        if "SSOT" in falhas:
+            print("  -> govio-ssot scan --roots ~ ; govio-ssot pin <caminho> --marker <arquivo>")
+        if "DEDUPE" in falhas:
+            print("  -> RETOME um dos itens listados acima. Nao crie o proximo duplicado.")
+        if "LEDGER" in falhas:
+            print("  -> A sessao anterior nao entregou produto. Feche-a com um SHIP real antes de abrir outra.")
+        print("\nVERDICT=BLOCKED")
+        return 1
+
+    print(f"AUTORIZADO  intent={a.intent}  tier=T{tier}")
+    print(f"meta: {a.goal}\n")
+    print("Sequencia autorizada — nada alem disto nesta sessao:")
+    print(f"  govio-ledger open {a.intent} --goal {a.goal!r}")
+    print(f"  cd \"$(govio-ssot path)\"")
+    for f in (a.files or ["<arquivo>"]):
+        proof = "" if tier <= 1 else " --expect-postimage <sha256>"
+        print(f"  govio-apply --file {f} --content-from <origem>{proof}")
+    print(f"  govio-ledger ship '<delta visivel>' --session {a.intent} --tier {tier} "
+          f"--files {' '.join(a.files) if a.files else '<arquivos>'}")
+    print("\nVERDICT=AUTHORIZED")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())

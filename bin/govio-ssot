@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""govio-ssot - resolve, fixa e verifica a UNICA fonte canonica do produto.
+
+Antidoto direto para: TARGET="/CAMINHO/REAL/DO/govio-core" executado literalmente,
+e para 57 repositorios git sob $HOME sem canonico declarado.
+Sem dependencias externas. Python 3.8+.
+"""
+from __future__ import annotations
+import argparse, json, os, re, subprocess, sys, tempfile
+from pathlib import Path
+
+GOVIO_HOME = Path(os.environ.get("GOVIO_HOME", Path.home() / ".govio"))
+PIN = GOVIO_HOME / "ssot.json"
+
+# Tokens que denunciam caminho-modelo nao substituido. Causa raiz observada em producao.
+PLACEHOLDER = re.compile(
+    r"(CAMINHO|CAMINHO_REAL|SEU_|SUA_|PATH_TO|PATH-TO|YOUR_|<[^>/]+>|\bREAL\b|\bDO\b|TODO|FIXME|XXXX|EXEMPLO|EXAMPLE|PLACEHOLDER)",
+    re.IGNORECASE,
+)
+
+def die(code: str, msg: str, rc: int = 2) -> "NoReturn":  # type: ignore[valid-type]
+    print(f"FAIL {code}: {msg}", file=sys.stderr)
+    raise SystemExit(rc)
+
+def git(repo: Path, *args: str) -> str | None:
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args],
+                           text=True, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+def guard_placeholder(raw: str) -> None:
+    hit = PLACEHOLDER.search(raw)
+    if hit:
+        die("PLACEHOLDER_PATH",
+            f"caminho contem token de modelo nao substituido: {hit.group(0)!r} em {raw!r}. "
+            "Rode 'govio-ssot scan' e escolha um caminho real.")
+
+def toplevel(raw: str) -> Path:
+    guard_placeholder(raw)
+    p = Path(raw).expanduser()
+    if not p.exists():
+        die("PATH_NOT_FOUND", f"{p} nao existe")
+    top = git(p, "rev-parse", "--show-toplevel")
+    if not top:
+        die("NOT_A_GIT_REPO", f"{p} nao e um repositorio git")
+    return Path(top).resolve()
+
+def atomic_write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".ssot.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+def discover(roots: list[str], max_depth: int) -> list[Path]:
+    found: list[Path] = []
+    for root in roots:
+        base = Path(root).expanduser()
+        if not base.is_dir():
+            continue
+        base_depth = len(base.resolve().parts)
+        for dirpath, dirnames, _ in os.walk(base, topdown=True):
+            here = Path(dirpath)
+            if len(here.resolve().parts) - base_depth >= max_depth:
+                dirnames[:] = []
+                continue
+            # nunca descer em ruido conhecido
+            dirnames[:] = [d for d in dirnames
+                           if d not in {"node_modules", ".next", "dist", "build",
+                                        "__pycache__", ".venv", "venv", ".cache"}]
+            if ".git" in dirnames or (here / ".git").is_file():
+                found.append(here.resolve())
+                dirnames[:] = []
+    return sorted(set(found))
+
+def cmd_scan(a: argparse.Namespace) -> int:
+    repos = discover(a.roots, a.max_depth)
+    if not repos:
+        print("nenhum repositorio git encontrado em: " + ", ".join(a.roots))
+        return 1
+    groups: dict[str, list[Path]] = {}
+    for r in repos:
+        groups.setdefault(git(r, "remote", "get-url", "origin") or "(sem origin)", []).append(r)
+    print(f"{len(repos)} repositorios em {len(groups)} grupos de origin\n")
+    for remote, paths in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        flag = "  <-- DUPLICACAO" if len(paths) > 1 else ""
+        print(f"origin: {remote}   ({len(paths)}){flag}")
+        for p in paths:
+            print(f"    {p}")
+        print()
+    dupes = sum(len(v) - 1 for v in groups.values() if len(v) > 1)
+    print(f"checkouts redundantes do mesmo origin: {dupes}")
+    return 0
+
+def cmd_pin(a: argparse.Namespace) -> int:
+    top = toplevel(a.path)
+    if a.marker and not (top / a.marker).exists():
+        die("MARKER_ABSENT", f"marcador {a.marker!r} ausente em {top}; provavelmente nao e a fonte do produto")
+    data = {
+        "formatVersion": "1.0.0",
+        "artifactType": "govio.ssot.pin",
+        "path": str(top),
+        "origin": git(top, "remote", "get-url", "origin"),
+        "branch": git(top, "rev-parse", "--abbrev-ref", "HEAD"),
+        "head": git(top, "rev-parse", "HEAD"),
+        "marker": a.marker,
+        "pinnedAt": subprocess.run(["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
+                                   text=True, capture_output=True).stdout.strip(),
+    }
+    atomic_write_json(PIN, data)
+    print(f"PIN OK -> {PIN}")
+    for k in ("path", "origin", "branch", "head", "marker"):
+        print(f"  {k}: {data[k]}")
+    return 0
+
+def load_pin() -> dict:
+    if not PIN.exists():
+        die("NO_PIN", f"{PIN} ausente. Rode: govio-ssot scan && govio-ssot pin <caminho>", 3)
+    try:
+        d = json.loads(PIN.read_text())
+    except json.JSONDecodeError as e:
+        die("PIN_CORRUPT", f"{PIN} ilegivel: {e}", 3)
+    if d.get("artifactType") != "govio.ssot.pin":
+        die("PIN_WRONG_TYPE", f"artifactType inesperado: {d.get('artifactType')!r}", 3)
+    return d
+
+def cmd_verify(a: argparse.Namespace) -> int:
+    d = load_pin()
+    top = Path(d["path"])
+    checks: list[tuple[str, bool, str]] = []
+    checks.append(("caminho existe", top.is_dir(), str(top)))
+    real = git(top, "rev-parse", "--show-toplevel") if top.is_dir() else None
+    checks.append(("e repositorio git", real is not None, real or "-"))
+    checks.append(("toplevel estavel", real == str(top), f"{real} vs {top}"))
+    now_origin = git(top, "remote", "get-url", "origin") if real else None
+    checks.append(("origin confere", now_origin == d.get("origin"),
+                   f"{now_origin} vs {d.get('origin')}"))
+    if d.get("marker"):
+        checks.append(("marcador presente", (top / d["marker"]).exists(), d["marker"]))
+    ok = all(c[1] for c in checks)
+    for name, passed, detail in checks:
+        print(f"  [{'OK ' if passed else 'FALHA'}] {name}: {detail}")
+    head = git(top, "rev-parse", "HEAD") if real else None
+    if head and head != d.get("head"):
+        print(f"  [nota] HEAD avancou: {d.get('head','')[:12]} -> {head[:12]} (esperado, nao e falha)")
+    print("VERIFY " + ("PASS" if ok else "FAIL"))
+    return 0 if ok else 1
+
+def cmd_path(a: argparse.Namespace) -> int:
+    d = load_pin()
+    top = Path(d["path"])
+    if not top.is_dir() or git(top, "rev-parse", "--show-toplevel") != str(top):
+        die("PIN_STALE", f"pin aponta para {top}, que nao e mais um repo git valido. Repine.", 3)
+    print(str(top))
+    return 0
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="govio-ssot", description="fonte canonica unica do produto")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("scan", help="descobrir repos e expor duplicacao")
+    s.add_argument("--roots", nargs="+", default=[str(Path.home())])
+    s.add_argument("--max-depth", type=int, default=6)
+    s.set_defaults(fn=cmd_scan)
+
+    p = sub.add_parser("pin", help="fixar a fonte canonica")
+    p.add_argument("path")
+    p.add_argument("--marker", default=None, help="arquivo que prova ser a fonte do produto")
+    p.set_defaults(fn=cmd_pin)
+
+    v = sub.add_parser("verify", help="validar o pin atual")
+    v.set_defaults(fn=cmd_verify)
+
+    q = sub.add_parser("path", help="imprimir o caminho canonico (falha se invalido)")
+    q.set_defaults(fn=cmd_path)
+
+    a = ap.parse_args()
+    return a.fn(a)
+
+if __name__ == "__main__":
+    raise SystemExit(main())

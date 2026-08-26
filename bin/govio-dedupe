@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""govio-dedupe - bloqueia criacao de trabalho que ja existe sob outro nome.
+
+Antidoto direto para: ratia-r4-panel / ratia-r4-panel-ui / ratia-r4-panel-real-r1 /
+ratia-panel-fast-v1 / ratia-team-panel-v1 (5 worktrees do MESMO painel),
+alem de 2x worker e 2x critical. Nada impediu do 2o ao 5o.
+Sem dependencias externas. Python 3.8+.
+"""
+from __future__ import annotations
+import argparse, os, re, subprocess, sys
+from pathlib import Path
+
+TIMESTAMP = re.compile(r"\d{8}t\d{6}z|\d{8}-\d{6}|\d{13,}")
+# tokens que NAO carregam significado de dominio: sao apenas "mais uma tentativa"
+RUIDO = {
+    "r1","r2","r3","r4","r5","v1","v2","v3","v4","v5",
+    "real","fast","new","novo","final","fix","hotfix","wip","tmp","temp",
+    "clean","copy","copia","bak","backup","old","test","teste","draft",
+    "the","de","do","da","and","e","of",
+}
+
+def normalize(name: str) -> set[str]:
+    s = os.path.basename(name.strip().rstrip("/")).lower()
+    s = TIMESTAMP.sub(" ", s)
+    toks = {t for t in re.split(r"[^a-z0-9]+", s) if t}
+    toks = {t for t in toks if t not in RUIDO and not t.isdigit()}
+    return toks
+
+def jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+def existing(repo: str, extra_roots: list[str]) -> list[tuple[str, str]]:
+    """Retorna (origem, nome) para branches, worktrees e diretorios candidatos."""
+    out: list[tuple[str, str]] = []
+    r = subprocess.run(["git", "-C", repo, "branch", "-a", "--format=%(refname:short)"],
+                       text=True, capture_output=True)
+    if r.returncode == 0:
+        seen: set[str] = set()
+        for x in r.stdout.splitlines():
+            b = x.strip()
+            if not b:
+                continue
+            # branch local e seu ref de rastreamento sao a MESMA coisa, nao duplicacao
+            for pre in ("remotes/origin/", "origin/", "remotes/upstream/", "upstream/"):
+                if b.startswith(pre):
+                    b = b[len(pre):]
+                    break
+            if b and b not in seen:
+                seen.add(b)
+                out.append(("branch", b))
+    r = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"],
+                       text=True, capture_output=True)
+    if r.returncode == 0:
+        out += [("worktree", ln.split(" ", 1)[1].strip())
+                for ln in r.stdout.splitlines() if ln.startswith("worktree ")]
+    for root in extra_roots:
+        base = Path(root).expanduser()
+        if base.is_dir():
+            out += [("dir", str(p)) for p in base.iterdir() if p.is_dir()]
+    return out
+
+def cmd_check(a: argparse.Namespace) -> int:
+    want = normalize(a.slug)
+    if not want:
+        print(f"FAIL SLUG_VAZIO: {a.slug!r} nao tem token significativo apos normalizacao",
+              file=sys.stderr)
+        return 3
+    cands = existing(a.repo, a.roots)
+    hits = []
+    for origem, nome in cands:
+        score = jaccard(want, normalize(nome))
+        if score >= a.threshold:
+            hits.append((score, origem, nome))
+    hits.sort(reverse=True)
+
+    print(f"slug: {a.slug!r}  ->  tokens {sorted(want)}")
+    print(f"comparado contra {len(cands)} nomes existentes (limiar {a.threshold})")
+    if not hits:
+        print("\nnenhuma colisao. VERDICT=CREATE_OK")
+        return 0
+    print(f"\n{len(hits)} colisao(oes) — este trabalho provavelmente JA EXISTE:")
+    for score, origem, nome in hits[: a.limit]:
+        print(f"  {score:.2f}  [{origem}] {nome}")
+    print("\nVERDICT=CREATE_BLOCKED  (INV-004)")
+    print("Acao correta: RETOMAR um dos acima, ou justificar com --force e registrar o porque.")
+    return 1
+
+def cmd_audit(a: argparse.Namespace) -> int:
+    """Agrupa nomes existentes em familias — expoe duplicacao ja instalada."""
+    cands = existing(a.repo, a.roots)
+    # Semear pelas nomes MAIS GENERICOS primeiro. Sem esta ordenacao o agrupamento
+    # guloso depende da ordem do filesystem e SUB-REPORTA duplicacao real.
+    itens = [(normalize(n), n) for _, n in cands]
+    itens = [(t, n) for t, n in itens if t]
+    itens.sort(key=lambda tn: (len(tn[0]), tn[1]))
+    fams: list[tuple[set[str], list[str]]] = []
+    for toks, nome in itens:
+        for ftoks, members in fams:
+            if jaccard(ftoks, toks) >= a.threshold:
+                members.append(nome)
+                break
+        else:
+            fams.append((set(toks), [nome]))
+    dupes = sorted([f for f in fams if len(f[1]) > 1], key=lambda f: -len(f[1]))
+    total = sum(len(m) - 1 for _, m in dupes)
+    print(f"{len(cands)} nomes -> {len(fams)} familias; {len(dupes)} familias duplicadas; "
+          f"{total} itens redundantes\n")
+    for toks, members in dupes[: a.limit]:
+        print(f"familia {sorted(toks)}  ({len(members)} membros)")
+        for m in sorted(members):
+            print(f"    {m}")
+        print()
+    return 0
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="govio-dedupe", description="impede reconstruir o que ja existe")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name, fn, helptxt in (("check", cmd_check, "checar um slug novo antes de criar"),
+                              ("audit", cmd_audit, "agrupar o que ja existe em familias")):
+        s = sub.add_parser(name, help=helptxt)
+        if name == "check":
+            s.add_argument("slug")
+        s.add_argument("--repo", default=".")
+        s.add_argument("--roots", nargs="*", default=[])
+        s.add_argument("--threshold", type=float, default=0.6)
+        s.add_argument("--limit", type=int, default=15)
+        s.set_defaults(fn=fn)
+    a = ap.parse_args()
+    return a.fn(a)
+
+if __name__ == "__main__":
+    raise SystemExit(main())

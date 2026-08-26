@@ -1,0 +1,72 @@
+{
+  "formatVersion": "1.0.0",
+  "artifactType": "govio.policy.invariants",
+  "principle": "Toda regra nascida de incidente tem dono e validade. Conjunto limitado por teto rigido. Sem teto, a governanca vira catraca e o produto para.",
+  "hardCap": 12,
+  "reviewCadenceDays": 14,
+  "invariants": [
+    {
+      "id": "INV-001",
+      "rule": "Existe exatamente UMA fonte canonica do produto, resolvida por govio-ssot e fixada em ~/.govio/ssot.json. Nenhum comando opera fora dela.",
+      "bornFrom": "TARGET=/CAMINHO/REAL/DO/govio-core executado como caminho literal; 57 repositorios git sob $HOME sem canonico declarado",
+      "owner": "douglas-reis",
+      "ttlDays": null,
+      "permanent": true,
+      "enforcedBy": "bin/govio-ssot verify"
+    },
+    {
+      "id": "INV-002",
+      "rule": "O custo do gate e determinado por bin/govio-tier a partir dos caminhos tocados. Aplicar gate de tier superior ao classificado e VIOLACAO, nao zelo.",
+      "bornFrom": "ATOMIC_APPLY com 3 bindings SHA, TOCTOU, transaction arm e rollback verify para alterar 2 campos de 1 JSON local rastreado por git",
+      "owner": "douglas-reis",
+      "ttlDays": null,
+      "permanent": true,
+      "enforcedBy": "bin/govio-tier classify"
+    },
+    {
+      "id": "INV-003",
+      "rule": "Sessao que termina com zero delta visivel ao usuario final e incidente P0 registrado no ledger, nao sessao normal.",
+      "bornFrom": "Multiplas sessoes consumidas em maquina de estados de configuracao sem alteracao alguma no produto",
+      "owner": "douglas-reis",
+      "ttlDays": null,
+      "permanent": true,
+      "enforcedBy": "bin/govio-ledger report"
+    },
+    {
+      "id": "INV-004",
+      "rule": "Antes de criar worktree, branch ou feature, bin/govio-dedupe check DEVE passar. Colisao de slug bloqueia a criacao.",
+      "bornFrom": "5 worktrees paralelos de painel (ratia-r4-panel, -panel-ui, -panel-real-r1, panel-fast-v1, team-panel-v1); 2 de worker; 2 de critical",
+      "owner": "douglas-reis",
+      "ttlDays": null,
+      "permanent": true,
+      "enforcedBy": "bin/govio-dedupe check"
+    },
+    {
+      "id": "INV-005",
+      "rule": "Toda unidade de trabalho declara predicado de conclusao verificavel ANTES de comecar. Predicado ja satisfeito = saida rapida DONE, proibido reconstruir.",
+      "bornFrom": "Reconstrucao repetida das mesmas funcionalidades, inspecoes e correcoes do zero",
+      "owner": "douglas-reis",
+      "ttlDays": null,
+      "permanent": true,
+      "enforcedBy": "bin/govio-preflight"
+    },
+    {
+      "id": "INV-006",
+      "rule": "Formato de autoridade transacional e contrato versionado (formatVersion + artifactType). Inferir gramatica de arquivo de evidencia e FAIL_TOOLING.",
+      "bornFrom": "MALFORMED_POSTIMAGE_AUTHORITY em P3",
+      "owner": "douglas-reis",
+      "ttlDays": 180,
+      "permanent": false,
+      "enforcedBy": "bin/govio-apply --tier>=2"
+    },
+    {
+      "id": "INV-007",
+      "rule": "Nenhum estado novo de maquina de controle pode ser criado sem que o estado anterior tenha produzido delta de produto mensuravel.",
+      "bornFrom": "Cadeia AUTHORIZED -> ATOMIC_APPLY -> POST_APPLY_RECONCILIATION sem uma linha de produto entregue",
+      "owner": "douglas-reis",
+      "ttlDays": 90,
+      "permanent": false,
+      "enforcedBy": "bin/govio-ledger report --enforce"
+    }
+  ]
+}

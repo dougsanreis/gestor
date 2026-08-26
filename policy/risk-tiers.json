@@ -1,0 +1,126 @@
+{
+  "formatVersion": "1.0.0",
+  "artifactType": "govio.policy.risk-tiers",
+  "principle": "O custo do gate e funcao do raio de destruicao (blast radius), nunca da ansiedade do operador.",
+  "defaultTier": 1,
+  "tiers": [
+    {
+      "tier": 0,
+      "name": "LOCAL_REVERSIVEL",
+      "blastRadius": "arquivo local rastreado por git; rollback = git checkout --",
+      "gates": [
+        "git_tracked",
+        "diff_visivel"
+      ],
+      "forbiddenGates": [
+        "preimage_sha",
+        "postimage_sha",
+        "toctou_probe",
+        "transaction_arm",
+        "rollback_verify",
+        "immutability_watchdog"
+      ],
+      "maxSecondsBudget": 20,
+      "patterns": [
+        "*.md",
+        "*.txt",
+        "docs/**",
+        "README*",
+        ".govio/*.json",
+        "*.example",
+        "*.sample"
+      ]
+    },
+    {
+      "tier": 1,
+      "name": "CODIGO_APLICACAO",
+      "blastRadius": "comportamento do produto; rollback = git revert + redeploy",
+      "gates": [
+        "git_tracked",
+        "diff_visivel",
+        "lint_escopo",
+        "typecheck_escopo",
+        "teste_escopo"
+      ],
+      "forbiddenGates": [
+        "toctou_probe",
+        "immutability_watchdog"
+      ],
+      "maxSecondsBudget": 300,
+      "patterns": [
+        "src/**",
+        "app/**",
+        "lib/**",
+        "components/**",
+        "pages/**",
+        "tests/**",
+        "*.ts",
+        "*.tsx",
+        "*.js",
+        "*.jsx",
+        "*.py",
+        "*.go"
+      ]
+    },
+    {
+      "tier": 2,
+      "name": "PLATAFORMA_E_ENTREGA",
+      "blastRadius": "todos os tenants na proxima entrega; rollback = redeploy do build anterior",
+      "gates": [
+        "git_tracked",
+        "diff_visivel",
+        "lint_escopo",
+        "typecheck_escopo",
+        "teste_escopo",
+        "preimage_sha",
+        "postimage_sha",
+        "build_verde",
+        "revisor_humano"
+      ],
+      "forbiddenGates": [],
+      "maxSecondsBudget": 1800,
+      "patterns": [
+        ".github/**",
+        "vercel.json",
+        "next.config.*",
+        "Dockerfile*",
+        "*.lock",
+        "package.json",
+        "middleware.*",
+        "infra/**",
+        "migrations/**"
+      ]
+    },
+    {
+      "tier": 3,
+      "name": "IRREVERSIVEL_OU_MULTITENANT",
+      "blastRadius": "dados de prefeitura em producao; rollback pode ser IMPOSSIVEL",
+      "gates": [
+        "git_tracked",
+        "diff_visivel",
+        "lint_escopo",
+        "typecheck_escopo",
+        "teste_escopo",
+        "preimage_sha",
+        "postimage_sha",
+        "build_verde",
+        "revisor_humano",
+        "duas_pessoas",
+        "ensaio_de_rollback",
+        "declaracao_blast_radius"
+      ],
+      "forbiddenGates": [],
+      "maxSecondsBudget": 7200,
+      "patterns": [
+        "**/*secret*",
+        "**/*credential*",
+        "**/.env*",
+        "**/tenant*",
+        "**/billing*",
+        "**/rls*",
+        "migrations/**/*destructive*",
+        "**/*drop_*.sql"
+      ]
+    }
+  ]
+}

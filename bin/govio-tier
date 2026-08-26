@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""govio-tier - classifica uma mudanca em TIER 0..3 e emite os gates DEVIDOS.
+
+Antidoto direto para: ATOMIC_APPLY com PREIMAGE_SHA/POSTIMAGE_SHA/TOCTOU/
+transaction-arm/rollback-verify aplicado a 2 campos de 1 JSON local rastreado
+por git. O gate excessivo tambem e violacao: consome a sessao sem entregar produto.
+Sem dependencias externas. Python 3.8+.
+"""
+from __future__ import annotations
+import argparse, fnmatch, json, os, subprocess, sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+POLICY = Path(os.environ.get("GOVIO_POLICY", HERE.parent / "policy" / "risk-tiers.json"))
+
+def load_policy() -> dict:
+    if not POLICY.exists():
+        print(f"FAIL POLICY_MISSING: {POLICY}", file=sys.stderr)
+        raise SystemExit(3)
+    d = json.loads(POLICY.read_text())
+    if d.get("artifactType") != "govio.policy.risk-tiers":
+        print(f"FAIL POLICY_WRONG_TYPE: {d.get('artifactType')!r}", file=sys.stderr)
+        raise SystemExit(3)
+    return d
+
+def rel_to_repo(path: str, repo: str) -> str:
+    """Relativiza contra o toplevel do git. Sem isto, um caminho ABSOLUTO nao casa
+    nenhum padrao e cai no defaultTier -- rebaixamento SILENCIOSO de risco."""
+    if not os.path.isabs(path):
+        return path
+    r = subprocess.run(["git", "-C", repo, "rev-parse", "--show-toplevel"],
+                       text=True, capture_output=True)
+    bases = []
+    if r.returncode == 0 and r.stdout.strip():
+        bases.append(r.stdout.strip())
+    bases.append(os.getcwd())
+    for base in bases:
+        try:
+            rel = os.path.relpath(path, base)
+        except ValueError:
+            continue
+        if not rel.startswith(".."):
+            return rel
+    return path
+
+
+def matches(path: str, pattern: str) -> bool:
+    p = path.replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    p = p.lstrip("/")
+    if fnmatch.fnmatch(p, pattern):
+        return True
+    # '**' deve casar em qualquer profundidade, inclusive zero segmentos
+    if "**/" in pattern and fnmatch.fnmatch(p, pattern.replace("**/", "", 1)):
+        return True
+    if pattern.endswith("/**") and fnmatch.fnmatch(p, pattern[:-3]):
+        return True
+    # padrao sem barra casa contra o basename
+    if "/" not in pattern and fnmatch.fnmatch(os.path.basename(p), pattern):
+        return True
+    return False
+
+def classify_one(path: str, pol: dict) -> tuple[int, str]:
+    best: int | None = None
+    why = "padrao (nenhum padrao casou)"
+    for t in pol["tiers"]:
+        for pat in t["patterns"]:
+            if matches(path, pat) and (best is None or t["tier"] > best):
+                best, why = t["tier"], f"casou {pat!r}"
+    if best is None:
+        return pol.get("defaultTier", 1), why
+    return best, why
+
+def changed_files(repo: str) -> list[str]:
+    out: list[str] = []
+    for args in (["diff", "--name-only", "HEAD"], ["diff", "--name-only", "--cached"],
+                 ["ls-files", "--others", "--exclude-standard"]):
+        r = subprocess.run(["git", "-C", repo, *args], text=True, capture_output=True)
+        if r.returncode == 0:
+            out += [x.strip() for x in r.stdout.splitlines() if x.strip()]
+    return sorted(set(out))
+
+def cmd_classify(a: argparse.Namespace) -> int:
+    pol = load_policy()
+    files = a.files or changed_files(a.repo)
+    if not files:
+        print("nenhum arquivo alterado; nada a classificar")
+        print("TIER=0\nGATES=\nVERDICT=NOOP")
+        return 0
+    rows = [(f, *classify_one(rel_to_repo(f, a.repo), pol)) for f in files]
+    top = max(r[1] for r in rows)
+    spec = next(t for t in pol["tiers"] if t["tier"] == top)
+
+    print(f"arquivos: {len(rows)}")
+    for f, t, why in sorted(rows, key=lambda r: -r[1])[: a.limit]:
+        mark = " <-- decide o tier" if t == top else ""
+        print(f"  T{t}  {f}   ({why}){mark}")
+    if len(rows) > a.limit:
+        print(f"  ... +{len(rows)-a.limit} arquivos")
+
+    print(f"\nTIER={top}  ({spec['name']})")
+    print(f"BLAST_RADIUS={spec['blastRadius']}")
+    print(f"ORCAMENTO_SEGUNDOS={spec['maxSecondsBudget']}")
+    print("GATES=" + ",".join(spec["gates"]))
+    if spec["forbiddenGates"]:
+        print("GATES_PROIBIDOS=" + ",".join(spec["forbiddenGates"]))
+        print("  (aplicar um gate proibido neste tier viola INV-002)")
+    print("VERDICT=CLASSIFIED")
+    return 0
+
+def cmd_check_gate(a: argparse.Namespace) -> int:
+    """Falha se um gate for excessivo para o tier. O excesso tambem e defeito."""
+    pol = load_policy()
+    spec = next((t for t in pol["tiers"] if t["tier"] == a.tier), None)
+    if spec is None:
+        print(f"FAIL TIER_DESCONHECIDO: {a.tier}", file=sys.stderr)
+        return 3
+    forbidden = [g for g in a.gates if g in spec["forbiddenGates"]]
+    unknown = [g for g in a.gates if g not in spec["gates"] and g not in spec["forbiddenGates"]]
+    for g in forbidden:
+        print(f"  [VIOLACAO] gate {g!r} e proibido em TIER-{a.tier} ({spec['name']})")
+    for g in unknown:
+        print(f"  [EXCESSO ] gate {g!r} nao consta em TIER-{a.tier}; justifique ou remova")
+    for g in spec["gates"]:
+        if g not in a.gates:
+            print(f"  [FALTANDO] gate obrigatorio {g!r}")
+    faltando = [g for g in spec["gates"] if g not in a.gates]
+    ok = not forbidden and not faltando
+    print("GATE_CHECK " + ("PASS" if ok else "FAIL"))
+    return 0 if ok else 1
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="govio-tier", description="gate proporcional ao raio de destruicao")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    c = sub.add_parser("classify", help="classificar arquivos alterados (ou os informados)")
+    c.add_argument("files", nargs="*")
+    c.add_argument("--repo", default=".")
+    c.add_argument("--limit", type=int, default=20)
+    c.set_defaults(fn=cmd_classify)
+
+    g = sub.add_parser("check-gate", help="detectar gate excessivo OU faltante para um tier")
+    g.add_argument("--tier", type=int, required=True)
+    g.add_argument("--gates", nargs="*", default=[])
+    g.set_defaults(fn=cmd_check_gate)
+
+    a = ap.parse_args()
+    return a.fn(a)
+
+if __name__ == "__main__":
+    raise SystemExit(main())

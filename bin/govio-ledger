@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""govio-ledger - contabilidade de PROGRESSO REAL, nao de gates aprovados.
+
+Antidoto direto para: multiplas sessoes inteiras consumidas em maquina de estados
+(AUTHORIZED -> ATOMIC_APPLY -> POST_APPLY_RECONCILIATION) sem uma unica linha
+entregue ao usuario final. Sessao com zero delta e incidente P0 (INV-003).
+Append-only JSONL. Sem dependencias externas. Python 3.8+.
+"""
+from __future__ import annotations
+import argparse, json, os, subprocess, sys
+from pathlib import Path
+
+GOVIO_HOME = Path(os.environ.get("GOVIO_HOME", Path.home() / ".govio"))
+LEDGER = GOVIO_HOME / "ledger.jsonl"
+
+def now() -> str:
+    return subprocess.run(["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
+                          text=True, capture_output=True).stdout.strip()
+
+def append(rec: dict) -> None:
+    LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    rec = {"ts": now(), **rec}
+    with LEDGER.open("a") as fh:
+        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+
+def read_all() -> list[dict]:
+    if not LEDGER.exists():
+        return []
+    recs = []
+    for ln in LEDGER.read_text().splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            recs.append(json.loads(ln))
+        except json.JSONDecodeError:
+            recs.append({"kind": "CORRUPT", "raw": ln[:120]})
+    return recs
+
+def cmd_open(a):
+    append({"kind": "SESSION_OPEN", "session": a.session, "goal": a.goal})
+    print(f"sessao aberta: {a.session}\nmeta: {a.goal}")
+    print("\nLembrete INV-003: fechar sem delta visivel ao usuario final = incidente P0.")
+    return 0
+
+def cmd_ship(a):
+    append({"kind": "SHIP", "session": a.session, "desc": a.desc,
+            "tier": a.tier, "files": a.files, "commit": a.commit})
+    print(f"SHIP registrado: {a.desc}  (T{a.tier}, {len(a.files)} arquivo(s))")
+    return 0
+
+def cmd_ceremony(a):
+    append({"kind": "CEREMONY", "session": a.session, "desc": a.desc,
+            "minutes": a.minutes, "producedDelta": False})
+    print(f"CERIMONIA registrada: {a.desc} ({a.minutes} min sem delta de produto)")
+    return 0
+
+def cmd_report(a):
+    recs = read_all()
+    if not recs:
+        print("ledger vazio. Rode: govio-ledger open <sessao> --goal <meta>")
+        return 0
+    by: dict[str, dict] = {}
+    for r in recs:
+        s = r.get("session", "(sem sessao)")
+        d = by.setdefault(s, {"ship": 0, "ceremony": 0, "ceremonyMin": 0, "goal": "", "open": False})
+        k = r.get("kind")
+        if k == "SESSION_OPEN":
+            d["goal"] = r.get("goal", "")
+            d["open"] = True
+        elif k == "SHIP":
+            d["ship"] += 1
+        elif k == "CEREMONY":
+            d["ceremony"] += 1
+            d["ceremonyMin"] += int(r.get("minutes") or 0)
+
+    ships = sum(d["ship"] for d in by.values())
+    cer = sum(d["ceremony"] for d in by.values())
+    zero = [s for s, d in by.items() if d["open"] and d["ship"] == 0]
+
+    print(f"{'SESSAO':<34} {'SHIP':>5} {'CERIM':>6} {'MIN_CERIM':>10}  META")
+    print("-" * 96)
+    for s, d in by.items():
+        flag = "  <-- ZERO DELTA (P0)" if d["open"] and d["ship"] == 0 else ""
+        print(f"{s[:33]:<34} {d['ship']:>5} {d['ceremony']:>6} {d['ceremonyMin']:>10}  {d['goal'][:28]}{flag}")
+    print("-" * 96)
+    ratio = (cer / ships) if ships else float("inf")
+    print(f"total: {ships} entregas, {cer} cerimonias")
+    print(f"razao cerimonia/entrega: {'INFINITA' if ships == 0 else f'{ratio:.2f}'}"
+          f"   (saudavel <= {a.max_ratio})")
+    if zero:
+        print(f"\nsessoes ZERO DELTA (INV-003): {len(zero)}")
+        for s in zero:
+            print(f"  - {s}")
+    if a.enforce:
+        bad = bool(zero) or (ships == 0 and cer > 0) or (ships and ratio > a.max_ratio)
+        print("\nENFORCE " + ("FAIL" if bad else "PASS"))
+        return 1 if bad else 0
+    return 0
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="govio-ledger", description="mede entrega, nao gates")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    o = sub.add_parser("open"); o.add_argument("session"); o.add_argument("--goal", required=True)
+    o.set_defaults(fn=cmd_open)
+
+    s = sub.add_parser("ship"); s.add_argument("desc"); s.add_argument("--session", required=True)
+    s.add_argument("--tier", type=int, default=1); s.add_argument("--files", nargs="*", default=[])
+    s.add_argument("--commit", default=None); s.set_defaults(fn=cmd_ship)
+
+    c = sub.add_parser("ceremony"); c.add_argument("desc"); c.add_argument("--session", required=True)
+    c.add_argument("--minutes", type=int, default=0); c.set_defaults(fn=cmd_ceremony)
+
+    r = sub.add_parser("report"); r.add_argument("--enforce", action="store_true")
+    r.add_argument("--max-ratio", type=float, default=1.0); r.set_defaults(fn=cmd_report)
+
+    a = ap.parse_args()
+    return a.fn(a)
+
+if __name__ == "__main__":
+    raise SystemExit(main())
