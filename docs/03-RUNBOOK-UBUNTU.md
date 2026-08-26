@@ -19,7 +19,7 @@ grep -q 'HOME/.local/bin' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH
 export PATH="$HOME/.local/bin:$PATH"
 
 # 3. validar a instalação ANTES de confiar nela
-bash ~/govio-kit/tests/test_kit.sh          # esperado: PASS=34 FAIL=0
+bash ~/govio-kit/tests/test_kit.sh          # esperado: PASS=40 FAIL=0
 ```
 
 Se a suíte não fechar em `FAIL=0`, **pare**. Ferramenta de governança não verificada
@@ -29,17 +29,38 @@ Se a suíte não fechar em `FAIL=0`, **pare**. Ferramenta de governança não ve
 
 ## 2. Resolver a fonte canônica (uma vez, e este é o passo que estava faltando)
 
+Escolher entre 57 repositórios foi exatamente onde as sessões anteriores travaram —
+e foi de lá que nasceu o `/CAMINHO/REAL/DO/govio-core`. Por isso o kit ranqueia
+os candidatos por **evidência de conter o produto**, em vez de pedir que você adivinhe:
+
 ```bash
-govio-ssot scan --roots ~ | head -40
+govio-ssot candidates --roots ~
 ```
 
-A saída agrupa os 57 repositórios por `origin` e marca `<-- DUPLICACAO` onde houver
-mais de um checkout do mesmo remoto. Escolha o que contém o produto e fixe-o
-com um marcador que **prove** ser o produto:
+Cada repositório é pontuado por sinais verificáveis — `.govio/` presente, `package.json`
+que nomeia o produto, app router Next.js, rota `dashboard`, config de deploy, volume de
+commits — e penalizado por sinais de não ser a fonte: worktree vinculado a outro repo,
+caminho de `evidence/`/`fixtures/`/`staging/`, esqueleto de um único commit.
+
+Os três desfechos possíveis, e nenhum deles é chute:
+
+| Saída | Código | Significa |
+|---|---|---|
+| `RECOMENDADO: <caminho>` | 0 | vencedor claro, com margem ≥ 15 pontos |
+| `EMPATE TECNICO` | 2 | dois candidatos equivalentes — **inspecione antes de fixar** |
+| `NENHUM candidato convincente` | 1 | a fonte não está nestas raízes; amplie `--roots` |
+
+Confirme o recomendado e fixe com um marcador que **prove** ser o produto:
 
 ```bash
 govio-ssot pin ~/Projects/SYRA/gestor --marker package.json
 govio-ssot verify
+```
+
+Para ver a duplicação de checkouts por `origin`, o `scan` continua disponível:
+
+```bash
+govio-ssot scan --roots ~ | head -40
 ```
 
 A partir daqui, todo comando começa por:

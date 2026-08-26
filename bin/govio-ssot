@@ -101,6 +101,101 @@ def cmd_scan(a: argparse.Namespace) -> int:
     print(f"checkouts redundantes do mesmo origin: {dupes}")
     return 0
 
+SINAIS_POS = [
+    (".govio/",        40, "tem .govio/ (control plane do produto)"),
+    ("__nome_govio",   25, "nome/origin contem 'govio'"),
+    ("package.json",   10, "tem package.json"),
+    ("__pkg_govio",    15, "package.json nomeia govio"),
+    ("__app_router",   10, "app router Next.js"),
+    ("__dashboard",    20, "tem rota/dir dashboard"),
+    ("__deploy_cfg",    8, "next.config ou vercel.json"),
+]
+
+def _score(repo: Path) -> tuple[int, list[str], list[str]]:
+    pos: list[str] = []
+    neg: list[str] = []
+    score = 0
+    files = (git(repo, "ls-files") or "").splitlines()
+    lower = [f.lower() for f in files]
+    origin = (git(repo, "remote", "get-url", "origin") or "").lower()
+    nome = str(repo).lower()
+
+    def tem(pred) -> bool:
+        return any(pred(f) for f in lower)
+
+    checks = {
+        ".govio/":      (repo / ".govio").is_dir() or tem(lambda f: f.startswith(".govio/")),
+        "__nome_govio": "govio" in nome or "govio" in origin,
+        "package.json": (repo / "package.json").is_file(),
+        "__pkg_govio":  False,
+        "__app_router": tem(lambda f: f.startswith("app/") or f.startswith("src/app/")),
+        "__dashboard":  tem(lambda f: "dashboard" in f),
+        "__deploy_cfg": tem(lambda f: f.startswith("next.config") or f == "vercel.json"),
+    }
+    pkg = repo / "package.json"
+    if pkg.is_file():
+        try:
+            checks["__pkg_govio"] = "govio" in json.loads(pkg.read_text()).get("name", "").lower()
+        except (json.JSONDecodeError, OSError):
+            pass
+    for chave, pontos, texto in SINAIS_POS:
+        if checks.get(chave):
+            score += pontos
+            pos.append(f"+{pontos} {texto}")
+
+    n = git(repo, "rev-list", "--count", "HEAD")
+    commits = int(n) if n and n.isdigit() else 0
+    if commits > 100:
+        score += 25; pos.append(f"+25 {commits} commits (trabalho real)")
+    elif commits > 20:
+        score += 15; pos.append(f"+15 {commits} commits")
+    elif commits <= 1:
+        score -= 40; neg.append(f"-40 {commits} commit (esqueleto vazio)")
+
+    if (repo / ".git").is_file():
+        score -= 30; neg.append("-30 worktree vinculado, nao repositorio proprio")
+    if any(m in nome for m in ("/evidence/", "/fixtures/", "/staging/", "/.tmp/", "/archive/")):
+        score -= 35; neg.append("-35 caminho de evidencia/fixture/staging")
+    if 0 < len(files) <= 3:
+        score -= 20; neg.append(f"-20 apenas {len(files)} arquivo(s) rastreado(s)")
+    return score, pos, neg
+
+
+def cmd_candidates(a: argparse.Namespace) -> int:
+    """Ranqueia repositorios por evidencia de conter o PRODUTO.
+
+    Existe porque escolher entre 57 repositorios foi o ponto onde as sessoes
+    anteriores travaram -- e onde nasceu o /CAMINHO/REAL/DO/govio-core.
+    """
+    repos = discover(a.roots, a.max_depth)
+    if not repos:
+        print("nenhum repositorio git encontrado em: " + ", ".join(a.roots))
+        return 1
+    linhas = sorted(((_score(r), r) for r in repos), key=lambda x: -x[0][0])
+    print(f"{len(repos)} repositorios avaliados. Ordenados por evidencia de conter o produto.\n")
+    for (score, pos, neg), repo in linhas[: a.top]:
+        print(f"[{score:>4}]  {repo}")
+        for t in pos:
+            print(f"          {t}")
+        for t in neg:
+            print(f"          {t}")
+        print()
+    melhor, repo_melhor = linhas[0][0][0], linhas[0][1]
+    segundo = linhas[1][0][0] if len(linhas) > 1 else -999
+    print("-" * 72)
+    if melhor <= 0:
+        print("NENHUM candidato convincente. A fonte do produto pode nao estar nestas raizes.")
+        print("Amplie --roots ou verifique se o repositorio foi clonado nesta maquina.")
+        return 1
+    if melhor - segundo < 15:
+        print(f"EMPATE TECNICO entre os dois primeiros ({melhor} vs {segundo}).")
+        print("Inspecione os dois antes de fixar -- nao chute.")
+        return 2
+    print(f"RECOMENDADO: {repo_melhor}")
+    print(f"Confirme e fixe com:\n  govio-ssot pin {repo_melhor} --marker package.json")
+    return 0
+
+
 def cmd_pin(a: argparse.Namespace) -> int:
     top = toplevel(a.path)
     if a.marker and not (top / a.marker).exists():
@@ -176,6 +271,12 @@ def main() -> int:
     p.add_argument("path")
     p.add_argument("--marker", default=None, help="arquivo que prova ser a fonte do produto")
     p.set_defaults(fn=cmd_pin)
+
+    c = sub.add_parser("candidates", help="ranquear repos por evidencia de conter o produto")
+    c.add_argument("--roots", nargs="+", default=[str(Path.home())])
+    c.add_argument("--max-depth", type=int, default=6)
+    c.add_argument("--top", type=int, default=8)
+    c.set_defaults(fn=cmd_candidates)
 
     v = sub.add_parser("verify", help="validar o pin atual")
     v.set_defaults(fn=cmd_verify)

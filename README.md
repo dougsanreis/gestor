@@ -40,9 +40,9 @@ Construir transação sobre um sistema que já é transacional é o defeito, nã
 
 ```bash
 export PATH="$PWD/bin:$PATH"
-bash tests/test_kit.sh                       # PASS=34 FAIL=0
+bash tests/test_kit.sh                       # PASS=40 FAIL=0
 
-govio-ssot scan --roots ~                    # descobrir e agrupar
+govio-ssot candidates --roots ~              # ranquear por evidência de conter o produto
 govio-ssot pin <caminho-real> --marker package.json
 cd "$(govio-ssot path)"
 
@@ -67,7 +67,7 @@ govio-preflight --intent "govio-<area>-<resultado>" \
 bash tests/test_kit.sh
 ```
 
-34 asserções, sem rede e sem dependências. A suíte encontrou 5 defeitos reais
+40 asserções, sem rede e sem dependências. A suíte encontrou 5 defeitos reais
 durante o desenvolvimento — entre eles um em que **caminho absoluto rebaixava
 silenciosamente o tier de risco**, o que teria permitido tratar uma migração
 destrutiva como mudança comum.

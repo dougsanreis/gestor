@@ -34,6 +34,32 @@ expect_rc 0 "pin valido"                                   "$BIN/govio-ssot" pin
 expect_rc 0 "verify apos pin"                              "$BIN/govio-ssot" verify
 expect_out "^$REPO\$" "path devolve canonico"              "$BIN/govio-ssot" path
 
+echo "== govio-ssot candidates =="
+CD="$TMP/cand"; mkdir -p "$CD"
+mkprod(){ # mkprod <dir> <ncommits>
+  local d="$CD/$1"; mkdir -p "$d/src/app/dashboard" "$d/.govio"
+  git -C "$d" init -q . && git -C "$d" config user.email t@t && git -C "$d" config user.name t
+  printf '{"name":"govio-core"}' > "$d/package.json"; printf '{}' > "$d/.govio/s.json"
+  printf 'p' > "$d/src/app/dashboard/page.tsx"; printf 'x' > "$d/next.config.js"
+  git -C "$d" add -A >/dev/null 2>&1
+  local i; for i in $(seq 1 "$2"); do git -C "$d" commit -q --allow-empty -m "c$i"; done
+}
+mkprod govio-produto 45
+# esqueleto vazio, o caso real de dougsanreis/gestor
+mkdir -p "$CD/vazio" && git -C "$CD/vazio" init -q .   && git -C "$CD/vazio" config user.email t@t && git -C "$CD/vazio" config user.name t   && touch "$CD/vazio/.gitkeep" && git -C "$CD/vazio" add -A >/dev/null   && git -C "$CD/vazio" commit -qm init
+expect_out "RECOMENDADO.*govio-produto" "recomenda o repo com evidencia de produto"   "$BIN/govio-ssot" candidates --roots "$CD"
+expect_out "esqueleto vazio" "penaliza esqueleto de 1 commit"   "$BIN/govio-ssot" candidates --roots "$CD"
+expect_rc 0 "recomendacao confiante sai 0" "$BIN/govio-ssot" candidates --roots "$CD"
+# worktree vinculado nao pode vencer o repo de origem
+git -C "$CD/govio-produto" worktree add -q -b wt "$CD/govio-wt" >/dev/null 2>&1
+expect_out "RECOMENDADO.*govio-produto\$" "worktree vinculado nao vence a origem"   "$BIN/govio-ssot" candidates --roots "$CD"
+# empate tecnico exige inspecao humana, nao chute
+mkprod govio-gemeo 45
+expect_rc 2 "empate tecnico exige inspecao (rc=2)" "$BIN/govio-ssot" candidates --roots "$CD"
+# nenhum candidato convincente
+NC="$TMP/nada"; mkdir -p "$NC/x" && git -C "$NC/x" init -q .   && git -C "$NC/x" config user.email t@t && git -C "$NC/x" config user.name t   && touch "$NC/x/.gitkeep" && git -C "$NC/x" add -A >/dev/null && git -C "$NC/x" commit -qm i
+expect_rc 1 "sem candidato convincente sai 1" "$BIN/govio-ssot" candidates --roots "$NC"
+
 echo "== govio-tier =="
 expect_out "TIER=0" "JSON de estado local e T0"     "$BIN/govio-tier" classify .govio/project-state.json
 expect_out "TIER=1" "codigo de app e T1"            "$BIN/govio-tier" classify src/app/page.tsx

@@ -87,6 +87,7 @@ Nenhum declarado canônico. Toda sessão recomeça adivinhando onde trabalhar.
 **Correção — o caminho-modelo passa a ser rejeitado antes de virar comando:**
 
 ```bash
+govio-ssot candidates --roots ~                 # ranqueia por evidência de conter o produto
 govio-ssot scan --roots ~                       # expõe os 57 e agrupa por origin
 govio-ssot pin ~/Projects/SYRA/gestor --marker package.json
 govio-ssot verify                               # PASS/FAIL, exit code utilizável
@@ -343,7 +344,7 @@ onde a pergunta real estava aberta.
 Todo o kit tem suíte de regressão sem rede e sem dependências:
 
 ```bash
-bash tests/test_kit.sh      # 34 asserções, PASS=34 FAIL=0
+bash tests/test_kit.sh      # 40 asserções, PASS=40 FAIL=0
 ```
 
 A suíte trava, entre outras, estas regressões:
