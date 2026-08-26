@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/experiment.schema.json",
+  "title": "ExperimentSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "experiment_id",
+    "tenant_id",
+    "hypothesis_id",
+    "unit",
+    "population",
+    "variants",
+    "primary_metric",
+    "guardrails",
+    "minimum_detectable_effect",
+    "analysis_method",
+    "start_rule",
+    "stop_rules",
+    "immutable_after_start"
+  ],
+  "properties": {
+    "experiment_id": {"type": "string", "pattern": "^exp_[A-Za-z0-9_-]{8,}$"},
+    "tenant_id": {"type": "string", "pattern": "^ten_[A-Za-z0-9_-]{8,}$"},
+    "hypothesis_id": {"type": "string", "pattern": "^hyp_[A-Za-z0-9_-]{8,}$"},
+    "unit": {"type": "string", "enum": ["anonymous_visitor", "known_user", "account", "session"]},
+    "population": {"type": "string", "minLength": 5},
+    "variants": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "weight", "content_version"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9_-]+$"},
+          "weight": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "content_version": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "primary_metric": {"type": "string", "minLength": 3},
+    "secondary_metrics": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "guardrails": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+    "minimum_detectable_effect": {"type": "number", "exclusiveMinimum": 0, "maximum": 10},
+    "analysis_method": {"type": "string", "enum": ["FIXED_HORIZON_FREQUENTIST", "SEQUENTIAL_FREQUENTIST", "BAYESIAN_PRECONFIGURED"]},
+    "start_rule": {"type": "string", "enum": ["MANUAL_AFTER_APPROVAL", "SCHEDULED_AFTER_APPROVAL"]},
+    "stop_rules": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"type": "string", "enum": ["MAX_SAMPLE", "MAX_DURATION", "SAFETY_GUARDRAIL", "DATA_INTEGRITY_FAILURE", "MANUAL_EMERGENCY_STOP"]}
+    },
+    "segments": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "immutable_after_start": {"const": true},
+    "approved_governance_decision_id": {"type": ["string", "null"]}
+  }
+}

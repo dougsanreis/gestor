@@ -10,3 +10,8 @@ venv/
 # Estado de execucao da SYRA: memoria, historico, builds e artefatos.
 # Regenerado a cada execucao, nunca versionado.
 .syra/
+
+# Bundles de evidencia sao gerados por scripts/gerar_evidencia.py.
+# O manifest da Fase 0 e versionado como marco; os demais, nao.
+docs/evidence/*/
+!docs/evidence/VF-0000-FASE0/

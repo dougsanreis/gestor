@@ -1,0 +1,43 @@
+flowchart LR
+  subgraph VR[Vibe Rescue]
+    VR1[Hero: previsibilidade] --> VR2[Sintomas do loop]
+    VR2 --> VR3[Reframe: baseline]
+    VR3 --> VR4[Protocolo SAVE]
+    VR4 --> VR5[Áreas analisadas]
+    VR5 --> VR6[Keep / Refactor / Replace]
+    VR6 --> VR7[Processo e entregas]
+    VR7 --> VR8[Prova verificada]
+    VR8 --> VR9[Oferta]
+    VR9 --> VR10[FAQ + CTA]
+  end
+
+  subgraph AO[AgentOps ROI]
+    AO1[Hero: ganho líquido] --> AO2[Paradoxo atividade x entrega]
+    AO2 --> AO3[Custos invisíveis]
+    AO3 --> AO4[Ciclo CONTROL]
+    AO4 --> AO5[Arquitetura]
+    AO5 --> AO6[Piloto limitado]
+    AO6 --> AO7[Scorecard ROI]
+    AO7 --> AO8[Segurança e confiança]
+    AO8 --> AO9[Oferta]
+    AO9 --> AO10[FAQ + aplicação]
+  end
+
+  subgraph LO[Launch OS]
+    LO1[Hero: próximo marco] --> LO2[Cemitério de demos]
+    LO2 --> LO3[Ferramenta x sistema]
+    LO3 --> LO4[Mapa 6D]
+    LO4 --> LO5[Ativos publicáveis]
+    LO5 --> LO6[Experiência por entregas]
+    LO6 --> LO7[Para quem é]
+    LO7 --> LO8[Demo e prova]
+    LO8 --> LO9[Oferta]
+    LO9 --> LO10[FAQ + diagnóstico]
+  end
+
+  classDef rescue fill:#111824,stroke:#37D7E8,color:#FFFFFF,stroke-width:2px;
+  classDef agentops fill:#0D1A2A,stroke:#8D7CFF,color:#FFFFFF,stroke-width:2px;
+  classDef launch fill:#F7F5F0,stroke:#5B5AF7,color:#171A22,stroke-width:2px;
+  class VR1,VR2,VR3,VR4,VR5,VR6,VR7,VR8,VR9,VR10 rescue;
+  class AO1,AO2,AO3,AO4,AO5,AO6,AO7,AO8,AO9,AO10 agentops;
+  class LO1,LO2,LO3,LO4,LO5,LO6,LO7,LO8,LO9,LO10 launch;

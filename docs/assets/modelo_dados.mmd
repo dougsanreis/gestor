@@ -1,0 +1,30 @@
+erDiagram
+  TENANT ||--o{ FUNNEL : owns
+  FUNNEL ||--o{ PAGE : contains
+  PAGE ||--o{ CONTENT_ITEM : composes
+  FUNNEL ||--o{ OFFER : sells
+  CONTENT_ITEM }o--o{ CLAIM : uses
+  CLAIM }o--o{ EVIDENCE : supported_by
+
+  TENANT ||--o{ VISITOR_PROFILE : controls
+  VISITOR_PROFILE ||--o{ CONSENT_RECORD : grants
+  VISITOR_PROFILE ||--o{ JOURNEY_EVENT : emits
+  VISITOR_PROFILE ||--o{ JOURNEY_STATE : has
+
+  HYPOTHESIS ||--|| EXPERIMENT : becomes
+  EXPERIMENT ||--o{ VARIANT : includes
+  VARIANT ||--o{ EXPOSURE : assigned
+  VISITOR_PROFILE ||--o{ EXPOSURE : receives
+  EXPOSURE ||--o{ OUTCOME_EVENT : influences
+  EXPERIMENT ||--o{ EXPERIMENT_DECISION : produces
+
+  MISSION ||--o{ AGENT_RUN : executes
+  AGENT_RUN ||--o{ TOOL_CALL : invokes
+  AGENT_RUN ||--o{ ARTIFACT : produces
+  ARTIFACT ||--o{ EVALUATION : receives
+  POLICY_BUNDLE ||--o{ GOVERNANCE_DECISION : evaluates
+  ARTIFACT ||--o{ GOVERNANCE_DECISION : subject
+  GOVERNANCE_DECISION ||--o{ APPROVAL : requires
+  GOVERNANCE_DECISION ||--o{ RELEASE : authorizes
+  RELEASE ||--o{ INCIDENT : may_trigger
+  INCIDENT ||--o{ LEARNING_CANDIDATE : generates

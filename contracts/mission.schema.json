@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/mission.schema.json",
+  "title": "Mission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mission_id",
+    "tenant_id",
+    "type",
+    "goal",
+    "scope",
+    "required_outputs",
+    "risk_class",
+    "autonomy_level",
+    "budgets",
+    "policies",
+    "success_criteria",
+    "created_by",
+    "created_at"
+  ],
+  "properties": {
+    "mission_id": {"type": "string", "pattern": "^mis_[A-Za-z0-9_-]{8,}$"},
+    "tenant_id": {"type": "string", "pattern": "^ten_[A-Za-z0-9_-]{8,}$"},
+    "type": {
+      "type": "string",
+      "enum": [
+        "CREATE_SALES_PAGE_VARIANT",
+        "CREATE_FUNNEL_ASSET",
+        "IMPLEMENT_FEATURE",
+        "RUN_EVALUATION",
+        "PREPARE_RELEASE",
+        "ANALYZE_EXPERIMENT",
+        "RESPOND_TO_INCIDENT"
+      ]
+    },
+    "goal": {"type": "string", "minLength": 10, "maxLength": 500},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["funnel_id"],
+      "properties": {
+        "funnel_id": {"type": "string", "minLength": 1},
+        "page_id": {"type": ["string", "null"]},
+        "repository": {"type": ["string", "null"]},
+        "paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_id", "sha256"],
+        "properties": {
+          "artifact_id": {"type": "string"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "required_outputs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "risk_class": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "autonomy_level": {"type": "string", "enum": ["L0", "L1", "L2", "L3", "L4"]},
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_cost_usd", "max_duration_seconds", "max_turns"],
+      "properties": {
+        "max_cost_usd": {"type": "number", "minimum": 0, "maximum": 10000},
+        "max_duration_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "max_turns": {"type": "integer", "minimum": 1, "maximum": 200}
+      }
+    },
+    "policies": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "success_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 3}
+    },
+    "created_by": {"type": "string", "minLength": 3},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

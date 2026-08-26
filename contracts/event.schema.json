@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/event.schema.json",
+  "title": "JourneyEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_name",
+    "schema_version",
+    "occurred_at",
+    "tenant_id",
+    "session_id",
+    "consent_state",
+    "properties",
+    "context",
+    "idempotency_key"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "pattern": "^evt_[A-Za-z0-9_-]{8,}$"},
+    "event_name": {"type": "string", "pattern": "^[a-z][a-z0-9_]+$"},
+    "schema_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "received_at": {"type": ["string", "null"], "format": "date-time"},
+    "tenant_id": {"type": "string", "pattern": "^ten_[A-Za-z0-9_-]{8,}$"},
+    "anonymous_id": {"type": ["string", "null"], "maxLength": 128},
+    "user_id": {"type": ["string", "null"], "maxLength": 128},
+    "session_id": {"type": "string", "minLength": 8, "maxLength": 128},
+    "funnel_id": {"type": ["string", "null"]},
+    "page_id": {"type": ["string", "null"]},
+    "page_version": {"type": ["string", "null"]},
+    "decision_id": {"type": ["string", "null"]},
+    "experiment_id": {"type": ["string", "null"]},
+    "variant_id": {"type": ["string", "null"]},
+    "consent_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analytics", "personalization", "marketing"],
+      "properties": {
+        "analytics": {"type": "boolean"},
+        "personalization": {"type": "boolean"},
+        "marketing": {"type": "boolean"}
+      }
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "number", "integer", "boolean", "null"]
+      },
+      "maxProperties": 40
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "locale": {"type": ["string", "null"]},
+        "device_class": {"type": ["string", "null"], "enum": ["mobile", "tablet", "desktop", null]},
+        "source_group": {"type": ["string", "null"]}
+      }
+    },
+    "idempotency_key": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+  },
+  "anyOf": [
+    {"required": ["anonymous_id"]},
+    {"required": ["user_id"]}
+  ]
+}

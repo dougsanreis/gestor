@@ -24,6 +24,7 @@ packages = [
   "syra.factory",
   "syra.intelligence",
   "syra.funnel",
+  "syra.vfos",
 ]
 
 [tool.pytest.ini_options]

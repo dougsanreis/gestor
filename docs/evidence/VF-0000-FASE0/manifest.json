@@ -1,0 +1,84 @@
+{
+  "task_id": "VF-0000-FASE0",
+  "commit": "75a0e90a3ee86d606adba9999385ef1f5793fae2",
+  "changed_files": [
+    "tests/conftest.py",
+    "tests/test_cli.py",
+    "tests/test_fabrica.py",
+    "tests/test_funil.py",
+    "tests/test_governanca.py",
+    "tests/test_inteligencia.py",
+    "tests/test_memoria.py"
+  ],
+  "contracts": [
+    "mission",
+    "event",
+    "governance-decision",
+    "artifact",
+    "claim",
+    "experiment",
+    "learning-candidate"
+  ],
+  "commands": [
+    {
+      "command": "python3 -m pytest tests/ -q --no-header -p no:cacheprovider",
+      "exit_code": 0,
+      "started_at": "2026-08-26T16:05:41Z",
+      "finished_at": "2026-08-26T16:05:46Z",
+      "output_tail": "........................................................................ [ 22%]\n........................................................................ [ 44%]\n........................................................................ [ 66%]\n........................................................................ [ 88%]\n......................................                                   [100%]\n"
+    },
+    {
+      "command": "python3 scripts/validate_pack.py",
+      "exit_code": 0,
+      "started_at": "2026-08-26T16:05:46Z",
+      "finished_at": "2026-08-26T16:05:46Z",
+      "output_tail": "PACK VALIDATION: PASSED\nAgents: 11\nSchemas: 7\nHooks: 2\n"
+    },
+    {
+      "command": "python3 scripts/test_hooks.py",
+      "exit_code": 0,
+      "started_at": "2026-08-26T16:05:46Z",
+      "finished_at": "2026-08-26T16:05:47Z",
+      "output_tail": "HOOK TESTS: PASSED\n"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "/home/user/gestor/contracts/artifact.schema.json",
+      "sha256": "1585e24bfce60c141166fbc55c82398ae8325212f538ead00649e279f10e4b3f"
+    },
+    {
+      "path": "/home/user/gestor/contracts/claim.schema.json",
+      "sha256": "d029b5b8f5d07060d4e34b2033bd6b6fb8ea1a9357df8323858c322bca7ea88e"
+    },
+    {
+      "path": "/home/user/gestor/contracts/event.schema.json",
+      "sha256": "e6c35dcc1a00f9b2501ea1ffbc0054f8d0af88f69c4548245e6e91715248a56f"
+    },
+    {
+      "path": "/home/user/gestor/contracts/experiment.schema.json",
+      "sha256": "ce98538ad79fa8b1ec77dc5c61265f6e934da95a22f2a4a2e19e771265bd05ba"
+    },
+    {
+      "path": "/home/user/gestor/contracts/governance-decision.schema.json",
+      "sha256": "c77ff6fd980872ed7362c482436345b3f723badcea69124834657ae5556902ae"
+    },
+    {
+      "path": "/home/user/gestor/contracts/learning-candidate.schema.json",
+      "sha256": "69874c56e2f925a560d1dc4862c73a3c84225f831d9c40e3198b45c7fd19ee28"
+    },
+    {
+      "path": "/home/user/gestor/contracts/mission.schema.json",
+      "sha256": "669b9d82e6af3f088612a73abb2004210b2825ac16dffaf531f6d26126247d24"
+    }
+  ],
+  "evaluations": [],
+  "security_findings": [],
+  "governance_decision": null,
+  "residual_risks": [
+    "adapter PostgreSQL ainda nao implementado",
+    "Model Router e Tool Gateway pertencem a Fase 1"
+  ],
+  "sealed_at": "2026-08-26T16:05:47Z",
+  "manifest_sha256": "3ccede0bab2298b529c8bd1b618d90a272271e3cee60fc3f27471306d2a2bcca"
+}

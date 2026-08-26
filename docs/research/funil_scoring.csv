@@ -1,0 +1,7 @@
+ranking,id,nome,segmento,intensidade_dor,urgencia,poder_compra,diferenciacao,forca_evidencia,fit_automacao,score
+1,F2,Vibe Rescue — resgate do projeto travado,Builder intermediário,10,10,7,9,9,8,90.0
+2,F3,AgentOps ROI — governança de IA para engenharia,Time avançado/agência/empresa,9,8,10,9,9,9,89.5
+3,F1,Launch OS — da ideia ao MVP publicável,Iniciante/fundador não técnico,9,9,6,8,8,9,83.0
+4,F6,Auditoria avulsa de segurança de app gerado por IA,Intermediário/avançado,8,8,8,7,10,7,79.0
+5,F5,Biblioteca de templates de aplicativos,Iniciante/intermediário,5,5,5,4,6,10,57.0
+6,F4,Curso genérico de prompts para vibe coding,Iniciante amplo,5,4,4,3,7,9,51.5

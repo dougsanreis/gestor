@@ -61,7 +61,11 @@ RULES: tuple[Rule, ...] = (
     Rule("checkout_dot", _rx(r"\bgit\s+checkout\s+--\s+\.\s*$"), 50,
          "descarta todas as alteracoes do diretorio de trabalho",
          "salve antes: git stash push -u"),
-    Rule("shutdown", _rx(r"\b(shutdown|reboot|halt|poweroff)\b"), 80,
+    # Posicao de comando obrigatoria: sem isso, "servidor.shutdown()" num
+    # script Python ou um grep pela palavra seriam pontuados como se fossem
+    # desligamento de maquina.
+    Rule("shutdown", _rx(r"(?:^|[;&|]\s*|\bsudo\s+|\bsystemctl\s+)"
+                         r"(shutdown|reboot|halt|poweroff)\b(?!\s*\()"), 80,
          "interrompe a maquina e derruba execucoes em andamento",
          None),
     Rule("kill_dash_nine", _rx(r"\bkill\s+-9\b|\bkillall\s+-9\b"), 40,

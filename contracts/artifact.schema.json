@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/artifact.schema.json",
+  "title": "Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_id",
+    "mission_id",
+    "tenant_id",
+    "type",
+    "schema_version",
+    "content_uri",
+    "content_hash",
+    "generator",
+    "sources",
+    "classification",
+    "created_at"
+  ],
+  "properties": {
+    "artifact_id": {"type": "string", "pattern": "^art_[A-Za-z0-9_-]{8,}$"},
+    "mission_id": {"type": "string", "pattern": "^mis_[A-Za-z0-9_-]{8,}$"},
+    "tenant_id": {"type": "string", "pattern": "^ten_[A-Za-z0-9_-]{8,}$"},
+    "type": {
+      "type": "string",
+      "enum": [
+        "funnel_spec",
+        "offer_spec",
+        "copy_bundle",
+        "ux_spec",
+        "visual_bundle",
+        "measurement_plan",
+        "experiment_analysis",
+        "source_code",
+        "test_report",
+        "security_report",
+        "privacy_report",
+        "release_manifest",
+        "learning_candidate"
+      ]
+    },
+    "schema_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "content_uri": {"type": "string", "minLength": 5},
+    "content_hash": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent", "model", "prompt_version", "run_id"],
+      "properties": {
+        "agent": {"type": "string", "minLength": 2},
+        "model": {"type": "string", "minLength": 2},
+        "prompt_version": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 8}
+      }
+    },
+    "sources": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "classification": {"type": "string", "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"]},
+    "contains_personal_data": {"type": "boolean", "default": false},
+    "expires_at": {"type": ["string", "null"], "format": "date-time"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

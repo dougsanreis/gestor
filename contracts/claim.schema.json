@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/claim.schema.json",
+  "title": "Claim",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "claim_id",
+    "tenant_id",
+    "exact_text",
+    "claim_type",
+    "risk_class",
+    "scope",
+    "evidence_ids",
+    "status",
+    "valid_from"
+  ],
+  "properties": {
+    "claim_id": {"type": "string", "pattern": "^clm_[A-Za-z0-9_-]{8,}$"},
+    "tenant_id": {"type": "string", "pattern": "^ten_[A-Za-z0-9_-]{8,}$"},
+    "exact_text": {"type": "string", "minLength": 3, "maxLength": 2000},
+    "claim_type": {"type": "string", "enum": ["FACTUAL", "TESTIMONIAL", "CASE", "COMPARISON", "GUARANTEE"]},
+    "risk_class": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["funnel_ids", "locales"],
+      "properties": {
+        "funnel_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "locales": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "countries": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "offer_versions": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "evidence_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+    "permission_id": {"type": ["string", "null"]},
+    "status": {"type": "string", "enum": ["DRAFT", "APPROVED", "EXPIRED", "REJECTED", "REVOKED"]},
+    "approved_by": {"type": ["string", "null"]},
+    "valid_from": {"type": "string", "format": "date-time"},
+    "valid_until": {"type": ["string", "null"], "format": "date-time"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "APPROVED"}}},
+      "then": {"required": ["approved_by", "created_at", "updated_at"]}
+    }
+  ]
+}
