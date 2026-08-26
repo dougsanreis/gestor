@@ -1,14 +1,30 @@
 {
   "task_id": "VF-0000-FASE0",
-  "commit": "75a0e90a3ee86d606adba9999385ef1f5793fae2",
+  "commit": "6c62c35f23619bbb5c21d20f2e738343edfba539",
   "changed_files": [
+    "syra/vfos/__init__.py",
+    "syra/vfos/api.py",
+    "syra/vfos/claims.py",
+    "syra/vfos/contracts.py",
+    "syra/vfos/evidence.py",
+    "syra/vfos/ids.py",
+    "syra/vfos/jsonschema_lite.py",
+    "syra/vfos/mission.py",
+    "syra/vfos/policy.py",
+    "syra/vfos/service.py",
+    "syra/vfos/store.py",
+    "syra/vfos/telemetry.py",
+    "syra/vfos/worker.py",
     "tests/conftest.py",
     "tests/test_cli.py",
     "tests/test_fabrica.py",
     "tests/test_funil.py",
     "tests/test_governanca.py",
+    "tests/test_hooks_guard.py",
     "tests/test_inteligencia.py",
-    "tests/test_memoria.py"
+    "tests/test_memoria.py",
+    "tests/test_vfos_app.py",
+    "tests/test_vfos_core.py"
   ],
   "contracts": [
     "mission",
@@ -23,22 +39,22 @@
     {
       "command": "python3 -m pytest tests/ -q --no-header -p no:cacheprovider",
       "exit_code": 0,
-      "started_at": "2026-08-26T16:05:41Z",
-      "finished_at": "2026-08-26T16:05:46Z",
-      "output_tail": "........................................................................ [ 22%]\n........................................................................ [ 44%]\n........................................................................ [ 66%]\n........................................................................ [ 88%]\n......................................                                   [100%]\n"
+      "started_at": "2026-08-26T16:10:15Z",
+      "finished_at": "2026-08-26T16:10:23Z",
+      "output_tail": "........................................................................ [ 20%]\n........................................................................ [ 40%]\n........................................................................ [ 60%]\n........................................................................ [ 80%]\n........................................................................ [100%]\n"
     },
     {
       "command": "python3 scripts/validate_pack.py",
       "exit_code": 0,
-      "started_at": "2026-08-26T16:05:46Z",
-      "finished_at": "2026-08-26T16:05:46Z",
+      "started_at": "2026-08-26T16:10:23Z",
+      "finished_at": "2026-08-26T16:10:23Z",
       "output_tail": "PACK VALIDATION: PASSED\nAgents: 11\nSchemas: 7\nHooks: 2\n"
     },
     {
       "command": "python3 scripts/test_hooks.py",
       "exit_code": 0,
-      "started_at": "2026-08-26T16:05:46Z",
-      "finished_at": "2026-08-26T16:05:47Z",
+      "started_at": "2026-08-26T16:10:23Z",
+      "finished_at": "2026-08-26T16:10:24Z",
       "output_tail": "HOOK TESTS: PASSED\n"
     }
   ],
@@ -79,6 +95,6 @@
     "adapter PostgreSQL ainda nao implementado",
     "Model Router e Tool Gateway pertencem a Fase 1"
   ],
-  "sealed_at": "2026-08-26T16:05:47Z",
-  "manifest_sha256": "3ccede0bab2298b529c8bd1b618d90a272271e3cee60fc3f27471306d2a2bcca"
+  "sealed_at": "2026-08-26T16:10:24Z",
+  "manifest_sha256": "ab5577b84dc32e73f2326f5566717033125396760707429362923faaf83a701a"
 }
