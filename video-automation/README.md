@@ -15,7 +15,7 @@ Este pacote transforma Claude Code em **orquestrador** de um pipeline reproduzí
 3. Coloque uma cópia de um vídeo de teste em `media/source.mp4`; preserve os arquivos originais fora da pasta gerada.
 4. Ajuste `edit-plan.example.json` e salve-o como `edit-plan.json`. O exemplo mantém dois trechos e gera 16:9, 9:16 e 1:1; confira os timecodes antes de executar.
 5. Execute `python3 scripts/media_preflight.py media/source.mp4`.
-6. Execute `python3 scripts/render_edl.py edit-plan.json` para gerar três exports em `exports/`. O script recusa sobrescrever saídas existentes.
+6. Execute `python3 scripts/render_edl.py edit-plan.json --preview --job teste` para um preview curto e, depois de aprovado, `python3 scripts/render_edl.py edit-plan.json --job teste` para gerar três exports em `exports/teste/`. Cada versão usa um `--job` novo; o script recusa sobrescrever.
 7. Inspecione duração, dimensão, áudio e decodificação. Veja o checklist em `ARQUITETURA-E-PLAYBOOK.md` e revise visualmente cada export antes de publicar.
 8. Abra Claude Code dentro da pasta e use `/video-pipeline` para pedir a análise, a proposta do plano e a execução controlada. No primeiro uso, solicite apenas um preview curto.
 

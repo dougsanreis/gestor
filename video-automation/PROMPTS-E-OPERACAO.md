@@ -30,7 +30,7 @@ Mostre uma lista humana de in/out e duração total para aprovação antes do re
 
 ```text
 Leia CLAUDE.md e a skill /video-pipeline. Execute somente o plano aprovado edit-plan.json.
-Comece em preview curto se esta combinação de fonte e perfis ainda não foi aprovada.
+Comece com `--preview --job <nome>` se esta combinação de fonte e perfis ainda não foi aprovada.
 Explique o efeito cover/contain e gere exports sem sobrescrever arquivos existentes.
 Depois faça QA técnico; liste codecs, dimensões, duração e status de decodificação por saída.
 Não declare a edição pronta para publicação até que eu tenha assistido e ouvido cada proporção.
@@ -91,10 +91,11 @@ python3 scripts/media_preflight.py media/source.mp4
 cp edit-plan.example.json edit-plan.json
 # editar fonte e timecodes no JSON
 python3 scripts/render_edl.py edit-plan.json --validate-only
-python3 scripts/render_edl.py edit-plan.json
+python3 scripts/render_edl.py edit-plan.json --preview --job v1
+python3 scripts/render_edl.py edit-plan.json --job v1
 ```
 
-O script não sobrescreve os nomes de saída; para renderizar revisão nova, arquive/mova os exports em uma pasta datada e faça a ação manualmente, ou altere o planejamento de versionamento. Não apague outputs automaticamente.
+Cada render grava em `exports/<job>/` com cópia do plano e `report.json`. Para uma revisão nova, use outro `--job` (ex.: `v2`); o script recusa job existente e as versões anteriores ficam intactas. Não apague outputs automaticamente.
 
 ## Referências
 

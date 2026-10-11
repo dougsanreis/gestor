@@ -9,7 +9,8 @@ cd video-automation/starter-project
 python3 scripts/media_preflight.py media/source.mp4
 cp edit-plan.example.json edit-plan.json   # ajuste fonte e timecodes
 python3 scripts/render_edl.py edit-plan.json --validate-only
-python3 scripts/render_edl.py edit-plan.json
+python3 scripts/render_edl.py edit-plan.json --preview --job v1
+python3 scripts/render_edl.py edit-plan.json --job v1
 ```
 
-Abra `claude` dentro de `starter-project/` para usar a skill `/video-pipeline`. Vídeos em `media/` e `exports/` ficam fora do git.
+Abra `claude` dentro de `starter-project/` para usar a skill `/video-pipeline`. Vídeos em `media/` e `exports/` ficam fora do git. Cada versão vai para `exports/<job>/`.

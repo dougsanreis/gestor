@@ -15,8 +15,11 @@ Use mídia própria ou autorizada. Faça primeiro cópias pequenas; não teste e
 - [ ] Fonte sem stream de vídeo e fonte com múltiplos streams de vídeo devem falhar com mensagem compreensível.
 - [ ] Perfil fora da lista ou fit desconhecido deve falhar.
 - [ ] `source` apontando para `../` ou symlink fora da pasta do projeto deve ser recusado.
-- [ ] Saída já existente deve falhar sem modificá-la.
-- [ ] Se um perfil falhar, nenhum arquivo parcial deve permanecer com nome final.
+- [ ] `--job` já existente deve falhar sem modificar a pasta; `--job ../x` deve ser recusado.
+- [ ] Se um perfil falhar, nenhum arquivo parcial deve permanecer com nome final e a pasta do job não deve ter `report.json`.
+- [ ] `--preview` gera 3 s por trecho em `exports/<job>-preview/`.
+- [ ] Trechos fora da ordem da fonte não fazem o uso de memória crescer com a duração do trecho.
+- [ ] O primeiro quadro de cada trecho corresponde ao quadro de `start` na fonte.
 
 ## Testes de saída
 
