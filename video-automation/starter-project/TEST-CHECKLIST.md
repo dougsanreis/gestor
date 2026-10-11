@@ -6,6 +6,7 @@ Use mídia própria ou autorizada. Faça primeiro cópias pequenas; não teste e
 
 - [ ] `ffmpeg -version` e `ffprobe -version` mostram versões compatíveis.
 - [ ] `python3 scripts/media_preflight.py media/source.mp4` gera JSON e identifica streams.
+- [ ] Vídeo de celular/WhatsApp com taxa variável gera aviso com `fps_average` (o `fps_nominal` pode marcar 120).
 - [ ] `python3 scripts/render_edl.py edit-plan.json --validate-only` aceita somente paths dentro do workspace.
 
 ## Testes de falha esperada
