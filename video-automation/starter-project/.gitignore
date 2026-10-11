@@ -1,0 +1,4 @@
+media/*
+!media/.gitkeep
+exports/
+__pycache__/
