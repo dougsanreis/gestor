@@ -2,3 +2,6 @@ media/*
 !media/.gitkeep
 exports/
 __pycache__/
+# planos de jobs reais (podem descrever pessoas/clientes); o exemplo segue versionado
+edit-plan.*.json
+!edit-plan.example.json
