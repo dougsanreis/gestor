@@ -125,8 +125,15 @@ export function mountDev(app: express.Express): void {
       res.status(400).end();
       return;
     }
-    res.sendFile(file, { dotfiles: "deny" }, (err) => {
+    // `root` = pasta do storage: a regra de dotfiles vale só para o caminho dentro dela. Antes o
+    // caminho absoluto incluía ".local-storage" e o Express recusava tudo com 404.
+    const root = path.resolve(env.LOCAL_STORAGE_DIR);
+    res.sendFile(path.relative(root, file), { root, dotfiles: "deny" }, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });
+  });
+
+  app.get("/favicon.ico", (_req, res) => {
+    res.status(204).end();
   });
 }
