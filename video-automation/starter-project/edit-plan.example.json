@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "source": "media/source.mp4",
+  "fps": 30,
+  "fit": "cover",
+  "profiles": ["landscape", "vertical", "square"],
+  "segments": [
+    {"start": 0.0, "end": 4.5, "reason": "Abertura aprovada"},
+    {"start": 11.2, "end": 18.0, "reason": "Trecho principal aprovado"}
+  ]
+}

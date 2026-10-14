@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worker:
+    name: SYRA worker (typecheck, lint, testes com FFmpeg)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: syra-cut-ai/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: syra-cut-ai/worker/package-lock.json
+      - name: Instalar FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg && ffmpeg -version | head -1
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - name: Lint do worker (config do app)
+        working-directory: syra-cut-ai
+        run: |
+          npm install --no-audit --no-fund --no-save
+          npx eslint worker
+      - run: npm test
+      - name: Build de produção
+        run: npm run build
+
+  app:
+    name: SYRA app (typecheck e build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: syra-cut-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # bun.lock aponta para o registry privado do Lovable e o package-lock.json está defasado:
+      # instala do npm público sem gravar lockfile.
+      - run: npm install --no-audit --no-fund --no-save
+      - run: npx tsc --noEmit -p .
+      - name: Build
+        run: npx vite build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+          VITE_SUPABASE_PROJECT_ID: ci-placeholder
+
+  video-kit:
+    name: Kit video-automation (smoke test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: video-automation/starter-project/tests/smoke.sh
