@@ -43,6 +43,12 @@ export const env = {
   STT_TIMEOUT_MS: num("STT_TIMEOUT_MS", 300_000),
 
   STORAGE_PROVIDER: str("STORAGE_PROVIDER", "supabase"),
+  /** Servidor de teste: pasta do storage local e URL base para os links dos arquivos. */
+  LOCAL_STORAGE_DIR: str("LOCAL_STORAGE_DIR", ".local-storage"),
+  PUBLIC_BASE_URL: str("PUBLIC_BASE_URL", `http://localhost:${num("PORT", 8787)}`),
+  /** openai (padrão) | command (executa STT_COMMAND <áudio> <saida.json>) | none */
+  STT_PROVIDER: str("STT_PROVIDER", "openai"),
+  STT_COMMAND: str("STT_COMMAND"),
   STORAGE_BUCKET: str("STORAGE_BUCKET", "rendered-videos"),
   REPORTS_BUCKET: str("REPORTS_BUCKET", "reports"),
   SUPABASE_URL,
@@ -73,6 +79,12 @@ export function configProblems(e = env): string[] {
   const problems: string[] = [];
   if (!e.WORKER_API_KEY && !e.ALLOW_INSECURE_DEV) {
     problems.push("WORKER_API_KEY ausente (defina, ou ALLOW_INSECURE_DEV=1 só em máquina local).");
+  }
+  if (e.STORAGE_PROVIDER === "local" && !e.ALLOW_INSECURE_DEV) {
+    problems.push("STORAGE_PROVIDER=local é só para o servidor de teste (ALLOW_INSECURE_DEV=1).");
+  }
+  if (e.STT_PROVIDER === "command" && !e.STT_COMMAND) {
+    problems.push("STT_PROVIDER=command exige STT_COMMAND.");
   }
   if (e.WORKER_API_KEY && e.WORKER_API_KEY.length < 24) {
     problems.push("WORKER_API_KEY curto demais (mínimo 24 caracteres).");

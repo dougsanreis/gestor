@@ -4,6 +4,7 @@ import { enqueue, getJob, QueueFullError, retryJob } from "./queue.js";
 import { getHealth } from "./health.js";
 import { parseCreateJob } from "./contract.js";
 import { bearerMatches, isSafeJobId } from "./security.js";
+import { devEnabled, mountDev } from "./dev-server.js";
 
 const problems = configProblems();
 if (problems.length) {
@@ -73,6 +74,8 @@ app.post("/jobs/:id/retry", auth, (req, res) => {
   res.json({ id: job.id, status: job.status });
 });
 
+if (devEnabled()) mountDev(app);
+
 app.use(
   (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error("[syra-worker] erro não tratado", err);
@@ -80,6 +83,9 @@ app.use(
   },
 );
 
-app.listen(env.PORT, () => {
-  console.log(`[syra-worker] ouvindo na porta ${env.PORT}`);
+// No modo de teste local escuta só na própria máquina (as rotas /dev não têm autenticação).
+const host = process.env.HOST || (devEnabled() ? "127.0.0.1" : "0.0.0.0");
+app.listen(env.PORT, host, () => {
+  console.log(`[syra-worker] ouvindo em ${host}:${env.PORT}`);
+  if (devEnabled()) console.log(`[syra-worker] servidor de teste: ${env.PUBLIC_BASE_URL}/dev`);
 });

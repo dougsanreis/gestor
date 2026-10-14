@@ -11,7 +11,8 @@
     "serve": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
-    "test:unit": "node --import tsx --test test/unit.test.ts test/contract-app.test.ts"
+    "test:unit": "node --import tsx --test test/unit.test.ts test/contract-app.test.ts",
+    "dev:local": "ALLOW_INSECURE_DEV=1 STORAGE_PROVIDER=local tsx src/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

@@ -22,6 +22,10 @@ e despacha; o worker faz o trabalho pesado e devolve por callback (`docs/worker-
   30 fps antes do concat. Não voltar ao `split`/`trim` da fonte inteira: acumula quadros na memória.
 - Enquadramento: proporção parecida com 9:16 → corte central; diferente → fundo desfocado. Não
   afirmar que o reenquadramento é "inteligente": não há rastreamento de rosto.
+- Formatos virais ficam em `src/presets.ts` (gancho, jump cut, punch-in, legenda, barra). Mudar
+  ritmo/estilo = mudar preset, não espalhar `if` pelo render.
+- Trecho com giro/borrão sai pela análise de cena; gancho só se vier de ≥ 6 s adiante.
+- Para ver o resultado: `cd worker && npm run dev:local` → http://localhost:8787/dev.
 - Todo `spawn`/`fetch` tem timeout. Comandos sempre como lista de argumentos, nunca string de shell.
 - `job_id` passa por `isSafeJobId` antes de virar pasta, chave de storage ou caminho de filtro.
 - Mudou o corpo do callback ou o schema de `update-video-job.ts`? Atualize

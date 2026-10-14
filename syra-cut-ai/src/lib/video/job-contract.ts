@@ -18,7 +18,8 @@ export const VARIANT_SPECS: VariantSpec[] = [
   {
     id: "viral_cut",
     label: "Viral Cut",
-    description: "Smart cut + zoom dinâmico + legenda kinetic. Máxima retenção.",
+    description:
+      "Gancho no início, jump cuts, punch-in a cada corte, legenda palavra a palavra e barra de progresso. Máxima retenção.",
     speed: 1.0,
     zoom: true,
     captions: true,
@@ -26,16 +27,16 @@ export const VARIANT_SPECS: VariantSpec[] = [
   {
     id: "clean_caption",
     label: "Clean Caption",
-    description: "Sem zoom, legenda limpa, ritmo natural. Versão broadcast.",
+    description: "Ritmo natural, sem zoom, legenda limpa e pequena. Conteúdo de autoridade.",
     speed: 1.0,
     zoom: false,
     captions: true,
   },
   {
     id: "speed_dynamic",
-    label: "Speed Dynamic 1.08x",
-    description: "Aceleração sutil + zoom + legendas. Reels/Shorts.",
-    speed: 1.08,
+    label: "Speed Dynamic 1.1x",
+    description: "Viral Cut acelerado (1,1×) com cortes mais secos. Reels/Shorts.",
+    speed: 1.1,
     zoom: true,
     captions: true,
   },

@@ -1,4 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
+import { run } from "./ffmpeg-renderer.js";
 import { env } from "./env.js";
 import type { TimedText, Transcript } from "./types.js";
 
@@ -29,6 +31,9 @@ export async function transcribeAudio(audioPath: string): Promise<Transcript & {
     provider: "none",
     error,
   });
+  if (env.STT_PROVIDER === "none")
+    return empty("STT_PROVIDER=none: envie uma legenda .srt ou configure a transcrição.");
+  if (env.STT_PROVIDER === "command") return transcribeWithCommand(audioPath, empty);
   if (!env.OPENAI_API_KEY)
     return empty("OPENAI_API_KEY ausente: configure o provedor de transcrição (STT).");
   const size = (await stat(audioPath)).size;
@@ -82,5 +87,34 @@ export async function transcribeAudio(audioPath: string): Promise<Transcript & {
     );
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * STT local (servidor de teste): executa STT_COMMAND <áudio> <saida.json>. A saída segue o
+ * formato do Whisper: { text, language, segments: [{start,end,text}], words: [{start,end,word}] }.
+ * Ex.: STT_COMMAND="python3 scripts/transcribe_local.py" com faster-whisper instalado.
+ */
+async function transcribeWithCommand(
+  audioPath: string,
+  empty: (error: string) => Transcript & { error: string },
+): Promise<Transcript & { error?: string }> {
+  const [cmd, ...args] = env.STT_COMMAND.split(/\s+/).filter(Boolean);
+  const out = path.join(path.dirname(audioPath), "transcript.json");
+  try {
+    await run(cmd, [...args, audioPath, out], { timeoutMs: env.STT_TIMEOUT_MS });
+    const j = JSON.parse(await readFile(out, "utf8")) as {
+      text?: string;
+      language?: string;
+      segments?: unknown;
+      words?: unknown;
+    };
+    const segments = timed(j.segments, "text");
+    const words = timed(j.words, "word");
+    const text = (j.text ?? segments.map((s) => s.text).join(" ")).trim();
+    if (!text) return empty("a transcrição local voltou vazia (sem fala detectada)");
+    return { text, language: j.language, segments, words, provider: "command" };
+  } catch (e) {
+    return empty(`STT local falhou: ${e instanceof Error ? e.message : e}`);
   }
 }

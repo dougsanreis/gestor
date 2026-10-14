@@ -69,9 +69,10 @@ function fakeTranscript(): Transcript {
 
 const router = (segments: { start: number; end: number }[]): RouterResult => ({
   plan: {
-    title: "t",
+    title: "Título do teste",
     hooks: [],
     segments: segments.map((s) => ({ ...s, keep: true, reason: "teste" })),
+    hook: { start: 9.0, end: 12.5 },
     virality_score: 60,
     provider: "anthropic",
   },
@@ -97,31 +98,47 @@ for (const c of [
         { start: 0.4, end: 6.2 },
       ]),
       maxTotal: 90,
+      // Trecho "ruim" (giro de câmera) no meio da fala: tem que sair do corte.
+      unstable: [{ start: 4.0, end: 4.8 }],
+      variants: ["viral_cut", "clean_caption", "speed_dynamic"],
     });
     assert.equal(plan.framing, c.framing);
     assert.equal(plan.edl.segments.length, 2);
+    assert.ok(plan.hook, "gancho válido");
+    const viralTl = plan.timelines.viral_cut!;
+    assert.equal(viralTl[0].hook, true);
+    assert.ok(
+      viralTl.some((t) => t.punch),
+      "punch-in alternado",
+    );
+    assert.ok(
+      viralTl.every((t) => !(t.start < 4.8 && t.end > 4.0)),
+      "trecho instável removido",
+    );
     const work = path.join(dir, `work-${c.framing}`);
     const rendered = await renderAndValidate({
       inputPath: src,
       workDir: work,
       variants: ["viral_cut", "clean_caption", "speed_dynamic"],
-      transcript,
       plan,
+      title: transcript.text.slice(0, 40),
     });
     for (const r of rendered) {
       assert.ok(r.ok, `${r.id}: ${r.error}`);
+      assert.ok((r.captionEvents ?? 0) > 0, `${r.id} sem legenda`);
       assert.equal(r.width, 1080);
       assert.equal(r.height, 1920);
       assert.equal(r.v_codec, "h264");
       assert.equal(r.a_codec, "aac");
       assert.match(r.sha256 ?? "", /^[0-9a-f]{64}$/);
     }
-    const speed = rendered.find((r) => r.id === "speed_dynamic")!;
-    const viral = rendered.find((r) => r.id === "viral_cut")!;
-    assert.ok(
-      Math.abs(speed.duration! - viral.duration! / 1.08) < 0.4,
-      `${speed.duration} vs ${viral.duration}`,
-    );
+    // Cada variante tem a duração da própria linha do tempo (com aceleração na speed_dynamic).
+    for (const r of rendered) {
+      const tl = plan.timelines[r.id]!;
+      const expected =
+        tl.reduce((a, t) => a + (t.end - t.start), 0) / (r.id === "speed_dynamic" ? 1.1 : 1);
+      assert.ok(Math.abs(r.duration! - expected) < 0.5, `${r.id}: ${r.duration} vs ${expected}`);
+    }
   });
 }
 

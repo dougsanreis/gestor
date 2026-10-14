@@ -1,6 +1,5 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { buildCaptions, countWordsInSegments } from "./captions.js";
 import { buildEdl, type Edl } from "./edl-generator.js";
 import {
   chooseFraming,
@@ -8,12 +7,14 @@ import {
   renderVariant,
   sha256File,
   validateRender,
-  VARIANT_SPECS,
   type Framing,
   type ProbeReport,
 } from "./ffmpeg-renderer.js";
 import type { RouterResult } from "./ai-editorial-router.js";
-import type { Transcript, VariantId } from "./types.js";
+import { PRESETS } from "./presets.js";
+import type { Interval } from "./scene-analysis.js";
+import { buildTimeline, timelineDuration, validateHook, type Clip } from "./timeline.js";
+import type { TimedText, Transcript, VariantId } from "./types.js";
 
 export interface RenderedVariant {
   id: VariantId;
@@ -26,13 +27,19 @@ export interface RenderedVariant {
   a_codec?: string;
   size?: number;
   sha256?: string;
+  captionEvents?: number;
   error?: string;
 }
 
 export interface PlanResult {
   edl: Edl;
   framing: Framing;
-  captionsCount: number;
+  lowRes: boolean;
+  /** Trechos com giro/borrão removidos automaticamente. */
+  unstable: Interval[];
+  hook: Interval | null;
+  timelines: Partial<Record<VariantId, Clip[]>>;
+  words: TimedText[];
   subtitleWords: number;
 }
 
@@ -46,22 +53,68 @@ export function clampMaxDuration(v: number | undefined): number {
   return Math.max(5, Math.min(180, n));
 }
 
+/**
+ * Palavras com tempo. Se o STT só devolveu frases, distribui o tempo de cada frase entre as
+ * palavras proporcionalmente ao tamanho (aproximação; o normal é vir palavra a palavra).
+ */
+export function ensureWords(t: Transcript): TimedText[] {
+  const words = t.words.filter((w) => w.text.trim() && w.end > w.start);
+  if (words.length) return words;
+  return t.segments.flatMap((s) => {
+    const parts = s.text.split(/\s+/).filter(Boolean);
+    const total = parts.reduce((a, p) => a + p.length + 1, 0);
+    let cursor = s.start;
+    return parts.map((p) => {
+      const len = ((p.length + 1) / total) * (s.end - s.start);
+      const w = { start: cursor, end: cursor + len * 0.92, text: p };
+      cursor += len;
+      return w;
+    });
+  });
+}
+
 export function planCut(opts: {
   probe: ProbeReport;
   transcript: Transcript;
   router: RouterResult;
   maxTotal: number;
+  unstable: Interval[];
+  variants: VariantId[];
 }): PlanResult {
+  const words = ensureWords(opts.transcript);
   const edl = buildEdl(opts.router.plan, {
     sourceDuration: opts.probe.duration,
     maxTotal: opts.maxTotal,
     speech: opts.transcript.segments,
   });
+  const hook = validateHook(opts.router.plan.hook, {
+    duration: opts.probe.duration,
+    words,
+    bad: opts.unstable,
+  });
+  const timelines: PlanResult["timelines"] = {};
+  for (const id of opts.variants) {
+    timelines[id] = buildTimeline({
+      segments: edl.segments,
+      words,
+      bad: opts.unstable,
+      hook,
+      preset: PRESETS[id],
+    });
+  }
+  const main = timelines[opts.variants[0]] ?? [];
+  const subtitleWords = words.filter((w) =>
+    main.some((c) => (w.start + w.end) / 2 >= c.start && (w.start + w.end) / 2 <= c.end),
+  ).length;
   return {
     edl,
     framing: chooseFraming(opts.probe.width, opts.probe.height),
-    captionsCount: buildCaptions(opts.transcript).length,
-    subtitleWords: countWordsInSegments(opts.transcript.words, edl.segments),
+    lowRes: Math.min(opts.probe.width, opts.probe.height) < 720,
+    unstable: opts.unstable,
+    hook,
+    timelines,
+    words,
+    subtitleWords,
   };
 }
 
@@ -73,22 +126,26 @@ export async function renderAndValidate(opts: {
   inputPath: string;
   workDir: string;
   variants: VariantId[];
-  transcript: Transcript;
   plan: PlanResult;
+  title: string | null;
   onVariant?: (id: VariantId, phase: "RENDERING" | "VALIDATING") => Promise<void> | void;
 }): Promise<RenderedVariant[]> {
-  const captions = buildCaptions(opts.transcript);
   const out: RenderedVariant[] = [];
   for (const id of opts.variants) {
     try {
+      const clips = opts.plan.timelines[id] ?? [];
+      if (timelineDuration(clips) < 3)
+        throw new Error("linha do tempo com menos de 3 s após os cortes");
       await opts.onVariant?.(id, "RENDERING");
       const res = await renderVariant({
         inputPath: opts.inputPath,
         workDir: opts.workDir,
         variant: id,
-        segments: opts.plan.edl.segments,
-        captions,
+        clips,
+        words: opts.plan.words,
+        title: opts.title,
         framing: opts.plan.framing,
+        lowRes: opts.plan.lowRes,
       });
       await opts.onVariant?.(id, "VALIDATING");
       const { probe, failures } = await validateRender(res.outputPath, res.expectedDuration);
@@ -104,6 +161,7 @@ export async function renderAndValidate(opts: {
         a_codec: probe.a_codec,
         size: probe.size,
         sha256: await sha256File(res.outputPath),
+        captionEvents: res.captionEvents,
       });
     } catch (e) {
       out.push({ id, ok: false, error: e instanceof Error ? e.message : String(e) });
@@ -146,13 +204,15 @@ export async function writeMissionReport(opts: {
       virality_score: opts.router.plan.virality_score,
     },
     edl: opts.plan.edl,
+    unstable_removed: opts.plan.unstable,
+    hook: opts.plan.hook,
     framing: opts.plan.framing,
-    captions: opts.plan.captionsCount,
     subtitle_words: opts.plan.subtitleWords,
     variants: opts.rendered.map((r) => ({
       ...r,
       outputPath: r.outputPath ? path.basename(r.outputPath) : undefined,
-      spec: VARIANT_SPECS[r.id],
+      preset: PRESETS[r.id],
+      clips: opts.plan.timelines[r.id],
     })),
     human_review_required: true,
   };

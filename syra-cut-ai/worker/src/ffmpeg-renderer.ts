@@ -8,8 +8,10 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { env } from "./env.js";
 import { isSafeJobId } from "./security.js";
-import type { AiCaption, AiSegment, VariantId } from "./types.js";
-import { writeAss, type CaptionStyle } from "./ass-caption-generator.js";
+import type { TimedText, VariantId } from "./types.js";
+import { writeAss } from "./ass-caption-generator.js";
+import { PRESETS, PUNCH_SCALE, type VariantPreset } from "./presets.js";
+import type { Clip } from "./timeline.js";
 
 const FFMPEG = env.FFMPEG_PATH || "ffmpeg";
 const FFPROBE =
@@ -210,82 +212,93 @@ export function chooseFraming(width: number, height: number): Framing {
   return Math.abs(ratio - target) / target <= 0.25 ? "cover" : "blur_fill";
 }
 
-export interface VariantSpec {
-  style: CaptionStyle;
-  speed: number;
-  zoom: boolean;
-}
-
-export const VARIANT_SPECS: Record<VariantId, VariantSpec> = {
-  viral_cut: { style: "kinetic", speed: 1.0, zoom: true },
-  clean_caption: { style: "clean", speed: 1.0, zoom: false },
-  speed_dynamic: { style: "dynamic", speed: 1.08, zoom: true },
-};
-
 function escapeFilterPath(p: string): string {
   // Dentro de filter_complex: escapa \ ' : , [ ] ; para o parser de filtros e de opções.
   return p.replace(/\\/g, "/").replace(/([':,[\];])/g, "\\$1");
 }
 
+function framingChain(framing: Framing, label: string, out: string): string[] {
+  if (framing === "cover") {
+    return [
+      `${label}scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=increase,crop=${OUT_W}:${OUT_H}${out}`,
+    ];
+  }
+  const id = out.slice(1, -1);
+  return [
+    `${label}split=2[${id}bg0][${id}fg0]`,
+    `[${id}bg0]scale=${OUT_W / 4}:${OUT_H / 4}:force_original_aspect_ratio=increase,crop=${OUT_W / 4}:${OUT_H / 4},boxblur=8:2,scale=${OUT_W}:${OUT_H},eq=brightness=-0.10:saturation=0.85[${id}bg]`,
+    `[${id}fg0]scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=decrease[${id}fg]`,
+    `[${id}bg][${id}fg]overlay=(W-w)/2:(H-h)/2${out}`,
+  ];
+}
+
 /**
- * Monta o filtro. Cada trecho é uma entrada própria (-ss/-t antes de -i), então o FFmpeg não
- * decodifica a fonte inteira nem acumula quadros na memória; cada trecho é normalizado para
- * 30 fps (fontes VFR) antes do concat.
+ * Monta o filtro da variante. Cada trecho é uma entrada própria (-ss/-t antes de -i): o FFmpeg
+ * não decodifica a fonte inteira nem acumula quadros. Por trecho: 30 fps (fontes VFR),
+ * enquadramento, punch-in, cor, flash; microfade de áudio nas bordas para o corte não estalar.
+ * Depois do concat: legendas/título (ASS), barra de progresso, velocidade, voz (EQ + compressor
+ * + loudnorm).
  */
 export function buildFilterGraph(opts: {
-  segments: { start: number; end: number }[];
+  clips: Clip[];
   framing: Framing;
-  spec: VariantSpec;
+  preset: VariantPreset;
   assPath: string | null;
-  totalDuration: number;
+  lowRes: boolean;
 }): string {
   const parts: string[] = [];
-  opts.segments.forEach((s, i) => {
-    const d = (s.end - s.start).toFixed(3);
-    parts.push(`[${i}:v:0]trim=duration=${d},setpts=PTS-STARTPTS,fps=${OUT_FPS},setsar=1[v${i}]`);
+  const total = opts.clips.reduce((a, c) => a + (c.end - c.start), 0);
+  opts.clips.forEach((c, i) => {
+    const d = c.end - c.start;
+    parts.push(`[${i}:v:0]trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS,fps=${OUT_FPS}[r${i}]`);
+    parts.push(...framingChain(opts.framing, `[r${i}]`, `[f${i}]`));
+    const chain: string[] = [];
+    if (c.punch) {
+      const pw = Math.round((OUT_W * PUNCH_SCALE) / 2) * 2;
+      const ph = Math.round((OUT_H * PUNCH_SCALE) / 2) * 2;
+      chain.push(`scale=${pw}:${ph}`, `crop=${OUT_W}:${OUT_H}`);
+    }
+    if (opts.preset.grade) {
+      chain.push("eq=contrast=1.06:saturation=1.14:brightness=0.01");
+      if (opts.lowRes) chain.push("unsharp=5:5:0.6:5:5:0.0");
+    }
+    if (c.flashIn) chain.push("fade=t=in:st=0:d=0.18:color=white");
+    chain.push("setsar=1");
+    parts.push(`[f${i}]${chain.join(",")}[v${i}]`);
+    const fade = Math.min(0.03, d / 4).toFixed(3);
     parts.push(
-      `[${i}:a:0]atrim=duration=${d},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[a${i}]`,
+      `[${i}:a:0]atrim=duration=${d.toFixed(3)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,` +
+        `afade=t=in:d=${fade},afade=t=out:st=${(d - Number(fade)).toFixed(3)}:d=${fade}[a${i}]`,
     );
   });
-  const n = opts.segments.length;
-  parts.push(
-    `${opts.segments.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${n}:v=1:a=1[vc][ac]`,
-  );
+  const n = opts.clips.length;
+  parts.push(`${opts.clips.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${n}:v=1:a=1[vc][ac]`);
 
   let v = "[vc]";
-  if (opts.framing === "cover") {
-    parts.push(
-      `${v}scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=increase,crop=${OUT_W}:${OUT_H}[vf]`,
-    );
-  } else {
-    parts.push(`${v}split=2[bg0][fg0]`);
-    parts.push(
-      `[bg0]scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=increase,crop=${OUT_W}:${OUT_H},boxblur=24:2,eq=brightness=-0.08[bg]`,
-    );
-    parts.push(`[fg0]scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=decrease[fg]`);
-    parts.push(`[bg][fg]overlay=(W-w)/2:(H-h)/2[vf]`);
+  if (opts.assPath) {
+    parts.push(`${v}ass='${escapeFilterPath(opts.assPath)}'[vs]`);
+    v = "[vs]";
   }
-  v = "[vf]";
-
-  const chain: string[] = [];
-  if (opts.spec.zoom) {
-    // Push-in suave e contínuo de 1.00 → 1.06 ao longo do vídeo (o zoompan original resetava
-    // por quadro e tremia). Dimensões pares para o x264.
-    const T = Math.max(opts.totalDuration, 1).toFixed(3);
-    chain.push(
-      `scale=w='2*trunc(${OUT_W}*(1+0.06*min(t/${T}\\,1))/2)':h='2*trunc(${OUT_H}*(1+0.06*min(t/${T}\\,1))/2)':eval=frame`,
-      `crop=${OUT_W}:${OUT_H}`,
-    );
+  if (opts.preset.progressBar) {
+    // Barra fina no topo que cresce até o fim: sinaliza quanto falta (retém até o final).
+    const T = Math.max(total, 0.5).toFixed(3);
+    parts.push(`color=c=0xFFD400:s=${OUT_W}x10:r=${OUT_FPS}:d=${T}[bar]`);
+    parts.push(`${v}[bar]overlay=x='-w+w*t/${T}':y=0:eof_action=pass[vb]`);
+    v = "[vb]";
   }
-  if (opts.assPath) chain.push(`ass='${escapeFilterPath(opts.assPath)}'`);
-  if (opts.spec.speed !== 1) chain.push(`setpts=PTS/${opts.spec.speed}`, `fps=${OUT_FPS}`);
-  chain.push("format=yuv420p");
-  parts.push(`${v}${chain.join(",")}[vo]`);
+  const tail: string[] = [];
+  if (opts.preset.speed !== 1) tail.push(`setpts=PTS/${opts.preset.speed}`, `fps=${OUT_FPS}`);
+  tail.push("format=yuv420p");
+  parts.push(`${v}${tail.join(",")}[vo]`);
 
-  const aChain = ["loudnorm=I=-16:TP=-1.5:LRA=11"];
-  if (opts.spec.speed !== 1) aChain.push(`atempo=${opts.spec.speed}`);
-  aChain.push("aresample=48000"); // loudnorm sobe para 192 kHz; volta para 48 kHz.
-  parts.push(`[ac]${aChain.join(",")}[ao]`);
+  const a = [
+    "highpass=f=70",
+    "acompressor=threshold=-20dB:ratio=3:attack=8:release=180:makeup=2",
+    "loudnorm=I=-14:TP=-1.5:LRA=9",
+  ];
+  if (opts.preset.speed !== 1) a.push(`atempo=${opts.preset.speed}`);
+  a.push("aresample=48000"); // loudnorm sobe para 192 kHz; volta para 48 kHz.
+  parts.push(`[ac]${a.join(",")}[ao]`);
   return parts.join(";");
 }
 
@@ -293,51 +306,57 @@ export interface RenderInput {
   inputPath: string;
   workDir: string;
   variant: VariantId;
-  segments: AiSegment[];
-  captions: AiCaption[];
+  clips: Clip[];
+  words: TimedText[];
+  title: string | null;
   framing: Framing;
+  lowRes: boolean;
 }
 
 export interface RenderResult {
   outputPath: string;
   expectedDuration: number;
+  captionEvents: number;
 }
 
 export async function renderVariant(input: RenderInput): Promise<RenderResult> {
-  if (input.segments.length === 0) throw new Error("EDL vazia");
+  if (input.clips.length === 0) throw new Error("linha do tempo vazia");
   await mkdir(input.workDir, { recursive: true });
-  const spec = VARIANT_SPECS[input.variant];
+  const preset = PRESETS[input.variant];
+  const title = preset.titleCard ? input.title : null;
   let assPath: string | null = null;
-  if (input.captions.length > 0) {
+  let captionEvents = 0;
+  if (input.words.length > 0 || title) {
     assPath = path.join(input.workDir, `captions-${input.variant}.ass`);
-    await writeAss({
+    captionEvents = await writeAss({
       outPath: assPath,
-      style: spec.style,
-      captions: input.captions,
-      segments: input.segments,
+      style: preset.captions,
+      words: input.words,
+      clips: input.clips,
+      title,
     });
   }
-  const sourceTotal = input.segments.reduce((acc, s) => acc + (s.end - s.start), 0);
-  const expectedDuration = sourceTotal / spec.speed;
+  const sourceTotal = input.clips.reduce((acc, c) => acc + (c.end - c.start), 0);
+  const expectedDuration = sourceTotal / preset.speed;
   const outPath = path.join(input.workDir, `${input.variant}.mp4`);
 
   const inputs: string[] = [];
-  for (const s of input.segments) {
+  for (const c of input.clips) {
     inputs.push(
       "-ss",
-      s.start.toFixed(3),
+      c.start.toFixed(3),
       "-t",
-      (s.end - s.start).toFixed(3),
+      (c.end - c.start).toFixed(3),
       "-i",
       input.inputPath,
     );
   }
   const filter = buildFilterGraph({
-    segments: input.segments,
+    clips: input.clips,
     framing: input.framing,
-    spec,
+    preset,
     assPath,
-    totalDuration: sourceTotal,
+    lowRes: input.lowRes,
   });
   await run(
     FFMPEG,
@@ -360,7 +379,7 @@ export async function renderVariant(input: RenderInput): Promise<RenderResult> {
       "-preset",
       "veryfast",
       "-crf",
-      "21",
+      "20",
       "-pix_fmt",
       "yuv420p",
       "-r",
@@ -375,9 +394,9 @@ export async function renderVariant(input: RenderInput): Promise<RenderResult> {
       "+faststart",
       outPath,
     ],
-    { timeoutMs: Math.max(5 * 60 * 1000, Math.round(sourceTotal * 30_000)) },
+    { timeoutMs: Math.max(5 * 60 * 1000, Math.round(sourceTotal * 40_000)) },
   );
-  return { outputPath: outPath, expectedDuration };
+  return { outputPath: outPath, expectedDuration, captionEvents };
 }
 
 /**

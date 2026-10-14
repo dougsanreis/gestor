@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { env } from "./env.js";
 import { isUuid } from "./security.js";
@@ -42,12 +43,41 @@ export interface UploadResult {
   preview_url: string;
 }
 
+/**
+ * Storage local (só servidor de teste): grava em LOCAL_STORAGE_DIR/<bucket>/<key> e serve por
+ * GET /files/<bucket>/<key>. Nunca sobrescreve, igual ao Supabase com upsert: false.
+ */
+export function localPath(bucket: string, key: string): string {
+  const root = path.resolve(env.LOCAL_STORAGE_DIR);
+  const p = path.resolve(root, bucket, key);
+  if (!p.startsWith(root + path.sep)) throw new Error("caminho fora do storage local");
+  return p;
+}
+
+export function localUrl(bucket: string, key: string): string {
+  return `${env.PUBLIC_BASE_URL}/files/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+async function uploadLocal(bucket: string, key: string, from: string): Promise<void> {
+  const dest = localPath(bucket, key);
+  if (
+    await stat(dest).then(
+      () => true,
+      () => false,
+    )
+  )
+    throw new Error(`já existe: ${bucket}/${key}`);
+  await mkdir(path.dirname(dest), { recursive: true });
+  await copyFile(from, dest);
+}
+
 async function uploadFile(
   bucket: string,
   key: string,
   localPath: string,
   contentType: string,
 ): Promise<void> {
+  if (env.STORAGE_PROVIDER === "local") return uploadLocal(bucket, key, localPath);
   // Cortes de até alguns minutos em 1080p ficam na casa de dezenas de MB: Buffer é seguro.
   const body = await readFile(localPath);
   const { error } = await client()
@@ -61,6 +91,10 @@ export async function uploadRender(opts: {
   localPath: string;
 }): Promise<UploadResult> {
   await uploadFile(env.STORAGE_BUCKET, opts.key, opts.localPath, "video/mp4");
+  if (env.STORAGE_PROVIDER === "local") {
+    const url = localUrl(env.STORAGE_BUCKET, opts.key);
+    return { path: opts.key, download_url: url, preview_url: url };
+  }
   const { data: signed, error } = await client()
     .storage.from(env.STORAGE_BUCKET)
     .createSignedUrl(opts.key, 60 * 60 * 24 * 7);

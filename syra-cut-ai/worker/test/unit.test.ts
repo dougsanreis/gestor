@@ -3,14 +3,30 @@ import assert from "node:assert/strict";
 import { bearerMatches, isAllowedUrl, isSafeJobId, isUuid } from "../src/security.js";
 import { parseCreateJob } from "../src/contract.js";
 import { buildEdl, heuristicSegments } from "../src/edl-generator.js";
-import { buildCaptions, countWordsInSegments } from "../src/captions.js";
-import { buildAssEvents, escapeText, fmtTime } from "../src/ass-caption-generator.js";
+import {
+  buildAssEvents,
+  chunkWords,
+  escapeText,
+  fmtTime,
+  remapWords,
+} from "../src/ass-caption-generator.js";
+import {
+  buildTimeline,
+  capClips,
+  subtractIntervals,
+  tightenByWords,
+  validateHook,
+} from "../src/timeline.js";
+import { unstableIntervals } from "../src/scene-analysis.js";
+import { PRESETS } from "../src/presets.js";
+import { ensureWords } from "../src/pipeline.js";
+import { parseSubtitles } from "../src/srt.js";
 import { chooseFraming } from "../src/ffmpeg-renderer.js";
-import { normalizePlan, timedTranscript } from "../src/ai-editorial-router.js";
+import { localHook, normalizePlan, timedTranscript } from "../src/ai-editorial-router.js";
 import { storageKey } from "../src/storage.js";
 import { clampMaxDuration } from "../src/pipeline.js";
 import { env } from "../src/env.js";
-import type { EditorialPlan, TimedText, Transcript } from "../src/types.js";
+import type { EditorialPlan, TimedText } from "../src/types.js";
 
 const E = {
   ...env,
@@ -194,35 +210,141 @@ const words: TimedText[] = ["Isso", "é", "um", "teste", "real.", "Depois", "da"
     text: w,
   }),
 );
-const transcript: Transcript = {
-  text: words.map((w) => w.text).join(" "),
-  segments: [],
-  words,
-  provider: "openai",
-};
 
-test("legenda: só palavras reais, blocos de até 4 palavras, quebra em pontuação e pausa", () => {
-  const caps = buildCaptions(transcript);
+test("legenda: blocos curtos, quebra em pontuação e pausa, nunca atravessa um corte", () => {
   assert.deepEqual(
-    caps.map((c) => c.text),
-    ["Isso é um teste", "real.", "Depois", "da pausa"],
+    chunkWords(words, 3).map((c) => c.map((w) => w.text).join(" ")),
+    ["Isso é um", "teste real.", "Depois", "da pausa"],
   );
-  assert.equal(countWordsInSegments(words, [{ start: 0, end: 1.6 }]), 5); // 6ª palavra termina em 1,75 s
+  const clips = [
+    { start: 0, end: 1.2, punch: false, flashIn: false, hook: false },
+    { start: 4.5, end: 5.6, punch: true, flashIn: false, hook: false },
+  ];
+  const per = remapWords(words, clips);
+  assert.equal(per.length, 2);
+  assert.ok(
+    per[1].every((w) => w.start >= 1.2 - 1e-9),
+    "palavras do 2º trecho começam depois do 1º",
+  );
 });
 
-test("ASS: escapa override tags e remapeia para a linha do tempo do corte", () => {
+test("legenda karaokê: um evento por palavra com destaque, maiúsculas, título no topo", () => {
+  const clips = [{ start: 0, end: 1.8, punch: false, flashIn: false, hook: false }];
+  const ev = buildAssEvents({ style: "karaoke", words, clips, title: "Um título de teste" });
+  const dialog = ev.filter((e) => e.includes(",Karaoke,"));
+  assert.equal(dialog.length, 6);
+  assert.match(dialog[0], /\\c&H0000D7FF&.*ISSO/);
+  assert.ok(ev.some((e) => e.includes(",Title,") && e.includes("UM TÍTULO DE TESTE")));
+  const clean = buildAssEvents({ style: "clean", words, clips });
+  assert.ok(
+    clean.every((e) => !e.includes("\\c&H")),
+    "estilo limpo sem destaque",
+  );
+});
+
+test("ASS: escapa override tags e formata tempo", () => {
   assert.equal(escapeText("oi {\\b1}mundo\\N"), "oi b1mundoN");
   assert.equal(fmtTime(3661.239), "1:01:01.24");
-  const ev = buildAssEvents(
-    "clean",
-    [{ start: 10, end: 11, text: "x" }],
-    [
-      { start: 0, end: 2 },
-      { start: 9.5, end: 12 },
-    ],
+});
+
+test("borrão: detecta giro sustentado e ignora pico curto", () => {
+  const series: Array<[number, number]> = [];
+  for (let i = 0; i < 220; i++) {
+    const t = i / 10;
+    let b = 4.5;
+    if (t >= 8.8 && t < 10.8) b = 7.5; // giro de 2 s
+    if (t >= 5.0 && t < 5.3) b = 8.8; // pico de 0,3 s (movimento normal)
+    if (t === 9.5) b = 5.0; // uma amostra baixa no meio do giro não quebra o trecho
+    series.push([t, b]);
+  }
+  const out = unstableIntervals(series);
+  assert.equal(out.length, 1);
+  assert.ok(out[0].start < 8.8 && out[0].end > 10.7, JSON.stringify(out));
+});
+
+test("timeline: remove trechos ruins, faz jump cuts e alterna punch-in", () => {
+  const ws = [
+    { start: 0.2, end: 0.6, text: "a" },
+    { start: 0.7, end: 1.1, text: "b" },
+    { start: 2.5, end: 2.9, text: "c" }, // pausa de 1,4 s antes
+    { start: 3.0, end: 3.4, text: "d" },
+    { start: 6.5, end: 7.0, text: "e" },
+    { start: 7.1, end: 7.6, text: "f" },
+  ];
+  assert.deepEqual(subtractIntervals([{ start: 0, end: 8 }], [{ start: 4, end: 6 }]), [
+    { start: 0, end: 4 },
+    { start: 6, end: 8 },
+  ]);
+  assert.equal(tightenByWords([{ start: 0, end: 8 }], ws, 0.3).length, 3);
+  assert.equal(tightenByWords([{ start: 0, end: 8 }], ws, 0.8).length, 3);
+  const tl = buildTimeline({
+    segments: [{ start: 0, end: 8 }],
+    words: ws,
+    bad: [{ start: 4, end: 6 }],
+    hook: { start: 6.44, end: 7.66 },
+    preset: PRESETS.viral_cut,
+  });
+  assert.equal(tl[0].hook, true);
+  assert.equal(tl[1].flashIn, true);
+  assert.deepEqual(
+    tl.slice(1).map((c) => c.punch),
+    [false, true, false],
   );
-  assert.equal(ev.length, 1);
-  assert.match(ev[0], /Dialogue: 0,0:00:02\.50,0:00:03\.50,Clean/);
+  const near = buildTimeline({
+    segments: [{ start: 0, end: 8 }],
+    words: ws,
+    bad: [],
+    hook: { start: 2.44, end: 3.46 },
+    preset: PRESETS.viral_cut,
+  });
+  assert.ok(!near[0].hook, "gancho perto do início não é repetido");
+  assert.ok(
+    tl.every((c) => !(c.start < 6 && c.end > 4)),
+    "nada do trecho ruim entra",
+  );
+  const clean = buildTimeline({
+    segments: [{ start: 0, end: 8 }],
+    words: ws,
+    bad: [],
+    hook: { start: 2.44, end: 3.46 },
+    preset: PRESETS.clean_caption,
+  });
+  assert.ok(clean.every((c) => !c.hook && !c.punch));
+  assert.equal(
+    capClips(
+      Array.from({ length: 60 }, (_, i) => ({ start: i, end: i + 0.5 })),
+      48,
+    ).length,
+    48,
+  );
+});
+
+test("gancho: encaixa em palavras, recusa curto/longo e trecho ruim", () => {
+  const ws = Array.from({ length: 20 }, (_, i) => ({
+    start: i * 0.5,
+    end: i * 0.5 + 0.4,
+    text: `w${i}`,
+  }));
+  const ok = validateHook({ start: 1.1, end: 3.3 }, { duration: 10, words: ws, bad: [] });
+  assert.ok(ok && ok.start <= 1.0 + 1e-9 && ok.end >= 3.4 - 1e-9, JSON.stringify(ok));
+  assert.equal(validateHook({ start: 1, end: 1.4 }, { duration: 10, words: ws, bad: [] }), null);
+  assert.equal(validateHook({ start: 1, end: 8 }, { duration: 10, words: ws, bad: [] }), null);
+  assert.equal(
+    validateHook({ start: 1, end: 3 }, { duration: 10, words: ws, bad: [{ start: 2, end: 2.5 }] }),
+    null,
+  );
+  assert.equal(validateHook(null, { duration: 10, words: ws, bad: [] }), null);
+});
+
+test("palavras: sem tempo por palavra, distribui pelo tempo da frase", () => {
+  const w = ensureWords({
+    text: "",
+    words: [],
+    provider: "openai",
+    segments: [{ start: 0, end: 2, text: "uma frase curta" }],
+  });
+  assert.equal(w.length, 3);
+  assert.ok(w[2].end <= 2 && w[0].start === 0);
 });
 
 test("enquadramento: 9:16 parecido corta; 16:9 usa fundo desfocado", () => {
@@ -247,6 +369,14 @@ test("IA: normaliza resposta e transcrição com tempos limita tamanho", () => {
   assert.equal(p.title, "T");
   assert.equal(p.virality_score, 100);
   assert.deepEqual(p.segments, [{ start: 1, end: 4, reason: "r", keep: true }]);
+  assert.equal(p.hook, null);
+  assert.deepEqual(
+    normalizePlan(
+      { title: "x", segments: [{ start: 1, end: 3 }], hook: { start: 2, end: 4 } },
+      "xai",
+    ).hook,
+    { start: 2, end: 4 },
+  );
   assert.throws(() => normalizePlan({ title: "x", segments: [] }, "xai"));
   assert.match(timedTranscript(speech, ""), /^\[0\.40-3\.20\] Olá/);
   assert.ok(timedTranscript(speech, "", 40).length <= 40);
@@ -265,4 +395,28 @@ test("storage: caminho {user}/{job}/ com sufixo de retentativa, sem sobrescrever
     storageKey({ userId: "x/../y", jobId: "j1", file: "a.json", attempt: 1 }),
     "_sem-usuario/j1/a.json",
   );
+});
+
+test("gancho local (sem IA): prefere pergunta/curiosidade depois dos primeiros segundos", () => {
+  const segs = [
+    { start: 0.3, end: 3.0, text: "Ninguém te conta isso." },
+    { start: 7.0, end: 9.5, text: "Sabe por que seu anúncio não vende?" },
+    { start: 10.0, end: 12.0, text: "Então vamos lá." },
+  ];
+  assert.deepEqual(localHook(segs), { start: 7.0, end: 9.5 });
+  assert.equal(localHook([{ start: 8, end: 10, text: "frase comum sem gancho" }]), null);
+});
+
+test("legenda SRT/VTT vira transcrição de frases (servidor de teste)", () => {
+  const srt =
+    "1\n00:00:01,500 --> 00:00:03,250\nOlá <b>mundo</b>\n\n2\n00:00:04,000 --> 00:00:05,000\nSegunda {\\an8}linha\n";
+  const t = parseSubtitles(srt);
+  assert.deepEqual(t.segments, [
+    { start: 1.5, end: 3.25, text: "Olá mundo" },
+    { start: 4, end: 5, text: "Segunda linha" },
+  ]);
+  assert.equal(t.provider, "subtitle");
+  const vtt = parseSubtitles("WEBVTT\n\n00:00:00.500 --> 00:00:02.000 align:start\nTeste vtt\n");
+  assert.deepEqual(vtt.segments, [{ start: 0.5, end: 2, text: "Teste vtt" }]);
+  assert.equal(parseSubtitles("lixo sem tempo").segments.length, 0);
 });

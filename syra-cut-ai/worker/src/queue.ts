@@ -1,6 +1,6 @@
 import path from "node:path";
 import { env } from "./env.js";
-import type { CreateJobPayload, JobRecord, VariantId, VariantOutput } from "./types.js";
+import type { CreateJobPayload, JobRecord, Transcript, VariantId, VariantOutput } from "./types.js";
 import { ALL_VARIANTS } from "./types.js";
 import { postCallback } from "./callback-client.js";
 import {
@@ -16,11 +16,12 @@ import { transcribeAudio } from "./whisper-transcriber.js";
 import { planEditorial } from "./ai-editorial-router.js";
 import { clampMaxDuration, planCut, renderAndValidate, writeMissionReport } from "./pipeline.js";
 import { storageKey, uploadRender, uploadReport } from "./storage.js";
+import { detectUnstable } from "./scene-analysis.js";
 
 const VARIANT_LABELS: Record<VariantId, string> = {
   viral_cut: "Viral Cut",
   clean_caption: "Clean Caption",
-  speed_dynamic: "Speed Dynamic 1.08×",
+  speed_dynamic: "Speed Dynamic 1.1×",
 };
 
 const jobs = new Map<string, JobRecord>();
@@ -153,7 +154,8 @@ async function runJob(job: JobRecord): Promise<void> {
     job.progress = 15;
     await emit(job);
     await extractAudio(inputPath, audioPath);
-    const transcript = await transcribeAudio(audioPath);
+    const transcript: Transcript & { error?: string } =
+      job.payload.local_transcript ?? (await transcribeAudio(audioPath));
     // Falha cedo: o app reprova READY sem transcrição; renderizar antes só gastaria máquina.
     if (!transcript.text)
       throw new Error(`Transcrição não gerada: ${transcript.error ?? "motivo desconhecido"}`);
@@ -173,8 +175,15 @@ async function runJob(job: JobRecord): Promise<void> {
     job.ai_provider = router.plan.provider;
     job.title = router.plan.title;
     job.virality_score = router.plan.virality_score;
-    const plan = planCut({ probe, transcript, router, maxTotal });
-    job.cuts = plan.edl.segments.length;
+    const unstable = await detectUnstable(inputPath);
+    for (const u of unstable)
+      log(
+        job,
+        `trecho instável removido (giro/borrão): ${u.start.toFixed(2)}–${u.end.toFixed(2)}s`,
+      );
+    const variantIds = job.variants.map((v) => v.id);
+    const plan = planCut({ probe, transcript, router, maxTotal, unstable, variants: variantIds });
+    job.cuts = (plan.timelines[variantIds[0]] ?? []).length;
     job.subtitle_words = plan.subtitleWords;
     job.framing = plan.framing;
     log(
@@ -182,6 +191,12 @@ async function runJob(job: JobRecord): Promise<void> {
       `IA ${router.mode}/${router.plan.provider} · ${plan.edl.segments.length} trechos · ${plan.edl.total_duration.toFixed(1)}s · enquadramento ${plan.framing}`,
     );
     for (const n of plan.edl.notes) log(job, `EDL: ${n}`);
+    log(
+      job,
+      plan.hook
+        ? `gancho: ${plan.hook.start.toFixed(2)}–${plan.hook.end.toFixed(2)}s`
+        : "sem gancho válido",
+    );
     checkDeadline(deadline);
 
     job.status = "RENDERING";
@@ -190,9 +205,9 @@ async function runJob(job: JobRecord): Promise<void> {
     const rendered = await renderAndValidate({
       inputPath,
       workDir,
-      variants: job.variants.map((v) => v.id),
-      transcript,
+      variants: variantIds,
       plan,
+      title: router.plan.title,
       onVariant: async (id, phase) => {
         checkDeadline(deadline);
         const v = job.variants.find((x) => x.id === id)!;

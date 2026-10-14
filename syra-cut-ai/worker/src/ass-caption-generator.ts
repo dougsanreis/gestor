@@ -1,45 +1,63 @@
 import { writeFile } from "node:fs/promises";
-import type { AiCaption } from "./types.js";
+import type { CaptionStyle } from "./presets.js";
+import type { Clip } from "./timeline.js";
+import type { TimedText } from "./types.js";
 
-export type CaptionStyle = "kinetic" | "clean" | "dynamic";
+export type { CaptionStyle };
 
 /** Fonte com fallback: o libass usa fontconfig e cai na próxima disponível se Inter faltar. */
 const FONT = process.env.CAPTION_FONT || "Inter";
 
 /**
- * MarginV = distância da borda de baixo. TikTok/Reels/Shorts cobrem ~ os 20% inferiores
- * (legenda do post, botões); 420 px em 1920 mantém o texto acima dessa faixa.
+ * Posição: MarginV a partir de baixo. A UI do TikTok/Reels/Shorts cobre ~25% inferiores
+ * (descrição, botões); 560 px em 1920 coloca a legenda no terço inferior, acima dela.
  */
-const SAFE_MARGIN_V = 420;
-const SAFE_MARGIN_H = 90;
+const MARGIN_V = 560;
+const MARGIN_H = 110;
 
-const STYLES: Record<
-  CaptionStyle,
-  { name: string; fontSize: number; primary: string; bold: number; outline: number; shadow: number }
-> = {
-  kinetic: {
-    name: "Kinetic",
-    fontSize: 84,
-    primary: "&H00FFFFFF",
+interface StyleDef {
+  name: string;
+  size: number;
+  bold: number;
+  outline: number;
+  shadow: number;
+  upper: boolean;
+  maxWords: number;
+  /** Cor da palavra falada no momento (ASS = &HBBGGRR&). null = sem destaque. */
+  highlight: string | null;
+}
+
+const STYLES: Record<CaptionStyle, StyleDef> = {
+  karaoke: {
+    name: "Karaoke",
+    size: 58,
     bold: -1,
     outline: 5,
-    shadow: 1,
+    shadow: 0,
+    upper: true,
+    maxWords: 3,
+    highlight: "&H0000D7FF&",
   },
-  clean: { name: "Clean", fontSize: 64, primary: "&H00FFFFFF", bold: 0, outline: 3, shadow: 0 },
   dynamic: {
     name: "Dynamic",
-    fontSize: 76,
-    primary: "&H0000F0FF",
+    size: 58,
     bold: -1,
-    outline: 4,
-    shadow: 1,
+    outline: 5,
+    shadow: 0,
+    upper: true,
+    maxWords: 2,
+    highlight: "&H006EFF3C&",
   },
-};
-
-const FX: Record<CaptionStyle, string> = {
-  kinetic: "{\\fad(80,80)\\t(0,120,\\fscx115\\fscy115)\\t(120,260,\\fscx100\\fscy100)}",
-  dynamic: "{\\fad(60,60)\\t(0,160,\\fscx108\\fscy108)\\t(160,300,\\fscx100\\fscy100)}",
-  clean: "{\\fad(120,120)}",
+  clean: {
+    name: "Clean",
+    size: 48,
+    bold: 0,
+    outline: 3,
+    shadow: 1,
+    upper: false,
+    maxWords: 5,
+    highlight: null,
+  },
 };
 
 function header(style: CaptionStyle): string {
@@ -53,7 +71,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ${s.name},${FONT},${s.fontSize},${s.primary},&H000000FF,&H00000000,&H64000000,${s.bold},0,0,0,100,100,0,0,1,${s.outline},${s.shadow},2,${SAFE_MARGIN_H},${SAFE_MARGIN_H},${SAFE_MARGIN_V},1
+Style: ${s.name},${FONT},${s.size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,${s.bold},0,0,0,100,100,1,0,1,${s.outline},${s.shadow},2,${MARGIN_H},${MARGIN_H},${MARGIN_V},1
+Style: Title,${FONT},60,&H00FFFFFF,&H000000FF,&H00000000,&H28000000,-1,0,0,0,100,100,0,0,3,18,0,8,90,90,250,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -82,30 +101,106 @@ export function escapeText(t: string): string {
     .trim();
 }
 
-/**
- * Remapeia as legendas (tempo da fonte) para a linha do tempo pós-corte (concatenação dos
- * trechos mantidos, na ordem da EDL).
- */
-export function buildAssEvents(
-  style: CaptionStyle,
-  captions: AiCaption[],
-  segments: { start: number; end: number }[],
-): string[] {
-  const name = STYLES[style].name;
-  const events: string[] = [];
+/** Palavras da transcrição remapeadas para o tempo do vídeo final, trecho a trecho. */
+export function remapWords(words: TimedText[], clips: Clip[]): TimedText[][] {
+  const perClip: TimedText[][] = [];
   let offset = 0;
-  for (const seg of segments) {
-    for (const c of captions) {
-      const cs = Math.max(c.start, seg.start);
-      const ce = Math.min(c.end, seg.end);
-      if (ce - cs < 0.2) continue;
-      const text = escapeText(c.text);
-      if (!text) continue;
-      events.push(
-        `Dialogue: 0,${fmtTime(offset + (cs - seg.start))},${fmtTime(offset + (ce - seg.start))},${name},,0,0,0,,${FX[style]}${text}`,
-      );
+  for (const c of clips) {
+    const inside = words
+      .filter((w) => {
+        const mid = (w.start + w.end) / 2;
+        return mid >= c.start && mid <= c.end;
+      })
+      .map((w) => ({
+        start: offset + Math.max(0, w.start - c.start),
+        end: offset + Math.min(c.end - c.start, w.end - c.start),
+        text: escapeText(w.text),
+      }))
+      .filter((w) => w.text && w.end > w.start);
+    perClip.push(inside);
+    offset += c.end - c.start;
+  }
+  return perClip;
+}
+
+/** Blocos curtos (2–5 palavras), quebrando em pausa e pontuação; nunca atravessam um corte. */
+export function chunkWords(words: TimedText[], maxWords: number, gap = 0.4): TimedText[][] {
+  const chunks: TimedText[][] = [];
+  let cur: TimedText[] = [];
+  for (const w of words) {
+    const last = cur[cur.length - 1];
+    if (
+      cur.length &&
+      (cur.length >= maxWords || w.start - last.end > gap || /[.!?…,;:]$/.test(last.text))
+    ) {
+      chunks.push(cur);
+      cur = [];
     }
-    offset += seg.end - seg.start;
+    cur.push(w);
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
+
+function wrapTitle(t: string, perLine = 20): string {
+  const words = escapeText(t).toUpperCase().split(" ");
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if (line && (line + " " + w).length > perLine) {
+      lines.push(line);
+      line = w;
+    } else line = line ? `${line} ${w}` : w;
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 3).join("\\N");
+}
+
+export function buildAssEvents(opts: {
+  style: CaptionStyle;
+  words: TimedText[];
+  clips: Clip[];
+  title?: string | null;
+}): string[] {
+  const s = STYLES[opts.style];
+  const events: string[] = [];
+  const fmt = (w: string) => (s.upper ? w.toUpperCase() : w);
+  for (const clipWords of remapWords(opts.words, opts.clips)) {
+    const chunks = chunkWords(clipWords, s.maxWords);
+    chunks.forEach((chunk, ci) => {
+      const next = chunks[ci + 1];
+      // Segura o bloco até o próximo começar (se perto) para a legenda não piscar.
+      const chunkEnd =
+        next && next[0].start - chunk[chunk.length - 1].end < 0.3
+          ? next[0].start
+          : chunk[chunk.length - 1].end + 0.08;
+      if (!s.highlight) {
+        events.push(
+          `Dialogue: 0,${fmtTime(chunk[0].start)},${fmtTime(chunkEnd)},${s.name},,0,0,0,,{\\fad(60,40)}${chunk.map((w) => fmt(w.text)).join(" ")}`,
+        );
+        return;
+      }
+      chunk.forEach((w, wi) => {
+        const end = wi < chunk.length - 1 ? chunk[wi + 1].start : chunkEnd;
+        if (end - w.start < 0.04) return;
+        const text = chunk
+          .map((x, xi) =>
+            xi === wi ? `{\\c${s.highlight}\\fscx108\\fscy108}${fmt(x.text)}{\\r}` : fmt(x.text),
+          )
+          .join(" ");
+        const pop = wi === 0 ? "{\\fscx92\\fscy92\\t(0,90,\\fscx100\\fscy100)}" : "";
+        events.push(
+          `Dialogue: 0,${fmtTime(w.start)},${fmtTime(end)},${s.name},,0,0,0,,${pop}${text}`,
+        );
+      });
+    });
+  }
+  if (opts.title) {
+    const hook = opts.clips[0]?.hook ? opts.clips[0].end - opts.clips[0].start : 0;
+    const end = Math.max(2.4, Math.min(3.5, hook + 0.4));
+    events.push(
+      `Dialogue: 1,${fmtTime(0.1)},${fmtTime(end)},Title,,0,0,0,,{\\fad(90,160)\\fscx85\\fscy85\\t(0,140,\\fscx100\\fscy100)}${wrapTitle(opts.title)}`,
+    );
   }
   return events;
 }
@@ -113,10 +208,11 @@ export function buildAssEvents(
 export async function writeAss(opts: {
   outPath: string;
   style: CaptionStyle;
-  captions: AiCaption[];
-  segments: { start: number; end: number }[];
+  words: TimedText[];
+  clips: Clip[];
+  title?: string | null;
 }): Promise<number> {
-  const events = buildAssEvents(opts.style, opts.captions, opts.segments);
+  const events = buildAssEvents(opts);
   await writeFile(opts.outPath, header(opts.style) + events.join("\n") + "\n", "utf8");
   return events.length;
 }

@@ -11,6 +11,11 @@ export interface CreateJobPayload {
   ai_mode?: string;
   /** Duração máxima do corte final em segundos (já considerando a aceleração). */
   max_duration?: number;
+  /**
+   * Só o servidor de teste preenche (nunca vem do payload HTTP): transcrição já pronta, por
+   * exemplo de um .srt enviado na página /dev.
+   */
+  local_transcript?: Transcript;
 }
 
 export type JobStatus =
@@ -77,7 +82,7 @@ export interface Transcript {
   language?: string;
   segments: TimedText[];
   words: TimedText[];
-  provider: "openai" | "none";
+  provider: "openai" | "command" | "subtitle" | "none";
 }
 
 export interface AiSegment {
@@ -93,6 +98,8 @@ export interface EditorialPlan {
   title: string;
   hooks: string[];
   segments: AiSegment[];
+  /** Frase mais forte (1,5–4 s) repetida no começo como gancho; validada na timeline. */
+  hook?: { start: number; end: number } | null;
   virality_score: number;
   provider: "anthropic" | "xai" | "mistral" | "local";
 }
