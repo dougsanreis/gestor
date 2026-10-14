@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /jobs/
+Disallow: /dashboard
+Disallow: /upload
