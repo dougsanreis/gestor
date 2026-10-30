@@ -19,7 +19,7 @@ não souber onde.
 
 ---
 
-## `syra_core/` — o núcleo (20 módulos)
+## `syra_core/` — o núcleo (24 módulos)
 
 ### Kernel — a base, não depende de nada acima
 
