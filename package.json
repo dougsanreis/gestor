@@ -1,0 +1,15 @@
+{
+  "name": "gestor-de-anuncios",
+  "version": "1.0.0",
+  "description": "Sistema didático de gestão de campanhas de anúncios (Meta, Google, TikTok, LinkedIn) com interface local — construído com Claude Code.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.js",
+    "seed": "node --disable-warning=ExperimentalWarning src/seed.js --reset",
+    "test": "node --disable-warning=ExperimentalWarning --test \"tests/*.test.js\""
+  },
+  "license": "MIT"
+}
