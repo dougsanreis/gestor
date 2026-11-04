@@ -28,10 +28,10 @@ const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'",
 };
 
-export function buildRouter(db) {
+export function buildRouter(db, { loginClock } = {}) {
   const router = new Router();
   router.add('GET', '/api/health', () => ({ status: 'ok', time: new Date().toISOString() }), { auth: false });
-  registerAuthRoutes(router, db);
+  registerAuthRoutes(router, db, { clock: loginClock });
   registerUserRoutes(router, db);
   registerClientRoutes(router, db);
   registerCampaignRoutes(router, db);
@@ -52,8 +52,8 @@ function serveStatic(req, res, publicDir, pathname) {
   fs.createReadStream(file).pipe(res);
 }
 
-export function createApp({ db, publicDir, logger = console }) {
-  const router = buildRouter(db);
+export function createApp({ db, publicDir, logger = console, loginClock }) {
+  const router = buildRouter(db, { loginClock });
 
   return http.createServer(async (req, res) => {
     const started = performance.now();

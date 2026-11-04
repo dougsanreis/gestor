@@ -16,7 +16,7 @@
 
 ### Limitações conhecidas (sistema didático)
 - Sem HTTPS (desnecessário em `127.0.0.1`; obrigatório se for publicado).
-- Sem limite de tentativas de login (rate limiting) nem bloqueio de conta.
+- Limitador de login em memória, por endereço IP direto: após cinco falhas em 60 segundos, responde 429 e Retry-After. Não usa X-Forwarded-For. Reinício ou múltiplos processos reiniciam/dividem os contadores; atrás de proxy, usuários podem compartilhar um limite. Não é um controle distribuído nem bloqueio de conta.
 - Token em `localStorage` (em produção, preferir cookie `HttpOnly` + `SameSite`).
 - Sem multi-tenant: todos os usuários veem todos os clientes.
 - Senhas de demonstração conhecidas — troque-as antes de qualquer uso real.
