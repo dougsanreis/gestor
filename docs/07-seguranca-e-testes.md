@@ -16,7 +16,7 @@
 
 ### Limitações conhecidas (sistema didático)
 - Sem HTTPS (desnecessário em `127.0.0.1`; obrigatório se for publicado).
-- Limitador de login em memória, por endereço IP direto: após cinco falhas em 60 segundos, responde 429 e Retry-After. Não usa X-Forwarded-For. Reinício ou múltiplos processos reiniciam/dividem os contadores; atrás de proxy, usuários podem compartilhar um limite. Não é um controle distribuído nem bloqueio de conta.
+- Limitador de login por endereço IP direto usando reserva atômica no SQLite local: após cinco tentativas malsucedidas em 60 segundos, responde 429 e Retry-After. Não usa X-Forwarded-For. Processos que compartilham o mesmo arquivo local preservam os contadores após reinício. Contenção ou falha do armazenamento retorna 503 sem autenticar; um processo interrompido durante a verificação pode ocupar uma reserva até expirar. Atrás de proxy, usuários podem compartilhar o limite. Não é coordenação distribuída entre máquinas nem bloqueio por conta.
 - Token em `localStorage` (em produção, preferir cookie `HttpOnly` + `SameSite`).
 - Sem multi-tenant: todos os usuários veem todos os clientes.
 - Senhas de demonstração conhecidas — troque-as antes de qualquer uso real.

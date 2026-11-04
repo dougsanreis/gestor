@@ -16,7 +16,7 @@ Acesse **http://127.0.0.1:3000** — login `admin@gestor.local` / `admin123` (ou
 | `npm start` | inicia o sistema (cria e popula o banco na 1ª vez) |
 | `npm run dev` | modo desenvolvimento com recarga automática |
 | `npm run seed` | recria o banco com dados de demonstração |
-| `npm test` | testes automatizados (19 testes) |
+| `npm test` | testes automatizados (25 testes na execução R2) |
 
 ## Funcionalidades
 - Login com perfis **admin** e **gestor**
