@@ -94,3 +94,12 @@ curl -s -X POST localhost:3000/api/campaigns/1/metrics -H "Authorization: Bearer
   -H 'Content-Type: application/json' \
   -d '{"date":"2026-11-03","impressions":5000,"clicks":120,"spend":80,"conversions":4,"revenue":600}'
 ```
+
+### ID no corpo de atualizações
+
+Em `PUT /clients/:id`, `PUT /campaigns/:id` e `PATCH /campaigns/:id/status`,
+o `id` no corpo é opcional; quando presente, deve ser número JSON inteiro,
+positivo e seguro, idêntico ao ID da URL. Caso contrário, a API retorna 422
+sem escrita. A autenticação continua obrigatória. A interface existente envia
+o ID apenas na URL. `client_id` e `campaign_id` identificam relacionamentos;
+`POST /campaigns/:id/metrics` mantém o contrato de upsert por campanha e data.

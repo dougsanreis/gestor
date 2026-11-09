@@ -23,7 +23,7 @@ test('autorização por papel, alterações negadas e dados compartilhados',asyn
     const first=await call('POST','/api/clients',{name:'Synthetic Alpha'},admin);
     const second=await call('POST','/api/clients',{name:'Synthetic Beta'},manager);
     assert.equal(first.status,201);assert.equal(second.status,201);
-    const updated=await call('PUT',`/api/clients/${first.data.id}`,{id:second.data.id,name:'Updated Alpha',role:'admin',is_admin:true},manager);
+    const updated=await call('PUT',`/api/clients/${first.data.id}`,{id:first.data.id,name:'Updated Alpha',role:'admin',is_admin:true},manager);
     assert.equal(updated.status,200);assert.equal(updated.data.id,first.data.id);
     assert.equal(updated.data.role,undefined);assert.equal(updated.data.is_admin,undefined);
     assert.equal((await call('GET',`/api/clients/${second.data.id}`,null,admin)).data.name,'Synthetic Beta');

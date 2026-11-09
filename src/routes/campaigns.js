@@ -1,5 +1,5 @@
 import { HttpError } from '../http.js';
-import { parseId, parsePeriod, validate } from '../validation.js';
+import { parseId, parsePeriod, validate, validateResourceId } from '../validation.js';
 import { computeKpis, SUM_COLUMNS } from '../metrics.js';
 
 export const PLATFORMS = ['meta', 'google', 'tiktok', 'linkedin'];
@@ -82,6 +82,7 @@ export function registerCampaignRoutes(router, db) {
 
   router.add('PUT', '/api/campaigns/:id', ({ params, body }) => {
     const id = parseId(params.id);
+    validateResourceId(body, id);
     findCampaign(id);
     const d = validate(body, CAMPAIGN_SCHEMA);
     checkBusinessRules(d);
@@ -95,6 +96,7 @@ export function registerCampaignRoutes(router, db) {
   // Troca rápida de status (ativar / pausar / encerrar).
   router.add('PATCH', '/api/campaigns/:id/status', ({ params, body }) => {
     const id = parseId(params.id);
+    validateResourceId(body, id);
     findCampaign(id);
     const { status } = validate(body, { status: { type: 'enum', required: true, values: STATUSES } });
     db.prepare('UPDATE campaigns SET status = ? WHERE id = ?').run(status, id);

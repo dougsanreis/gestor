@@ -60,6 +60,15 @@ export function validate(input, schema) {
   return out;
 }
 
+// IDs de corpo são números JSON inteiros seguros, sem coerção implícita.
+export function validateResourceId(body, urlId) {
+  if (!Object.hasOwn(body ?? {}, 'id')) return;
+  const id = body.id;
+  if (!Number.isSafeInteger(id) || id <= 0 || id !== urlId) {
+    throw new HttpError(422, 'Dados inválidos', { id: 'ID inválido ou divergente da URL' });
+  }
+}
+
 export function parseId(value) {
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'ID inválido');

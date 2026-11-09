@@ -1,5 +1,5 @@
 import { HttpError } from '../http.js';
-import { parseId, validate } from '../validation.js';
+import { parseId, validate, validateResourceId } from '../validation.js';
 
 const CLIENT_SCHEMA = {
   name: { type: 'string', required: true, min: 2, max: 100 },
@@ -42,6 +42,7 @@ export function registerClientRoutes(router, db) {
 
   router.add('PUT', '/api/clients/:id', ({ params, body }) => {
     const id = parseId(params.id);
+    validateResourceId(body, id);
     findClient(id);
     const d = validate(body, CLIENT_SCHEMA);
     db.prepare('UPDATE clients SET name = ?, company = ?, email = ?, phone = ?, segment = ? WHERE id = ?')
